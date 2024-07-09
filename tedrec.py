@@ -67,7 +67,7 @@ class MoEAdaptorLayer(nn.Module):
         multiple_outputs = gates.unsqueeze(-1) * expert_outputs
         return multiple_outputs.sum(dim=-2)
 
-"""
+
 class TedRec(SASRec):
     #Text-ID fusion approach for sequential recommendation
 
@@ -77,7 +77,6 @@ class TedRec(SASRec):
         # 在深度学习中，温度参数通常用于控制输出分布的平滑程度，尤其是在softmax函数中。
         self.temperature = config['temperature']
         #plm_embedding 可能代表预训练语言模型（Pre-trained Language Model）的嵌入层。
-        self.plm_embedding = copy.deepcopy(dataset.plm_embedding)
         #这两行代码创建了两个线性层（nn.Linear），它们通常用于神经网络中的线性变换。
         # 这里它们被用作门控机制（gating mechanism），可能用于控制信息流。
         self.item_gating = nn.Linear(self.hidden_size, 1)
@@ -89,6 +88,7 @@ class TedRec(SASRec):
             config['adaptor_dropout_prob'],
             self.max_seq_length
         )
+        self.plm_embedding = copy.deepcopy(dataset.plm_embedding)
         #创建了一个复数权重矩阵，它被初始化为具有小的随机值。这个权重可能用于某种复数运算
         self.complex_weight = nn.Parameter(torch.randn(1, self.max_seq_length // 2 + 1, self.hidden_size, 2, dtype=torch.float32) * 0.02)
         #这两行代码使用正态分布初始化了item_gating和fusion_gating的权重。这是深度学习中常见的权重初始化方法，有助于模型的收敛。
@@ -154,16 +154,18 @@ class TedRec(SASRec):
         test_items_emb = F.normalize(test_items_emb, dim=-1)
 
         scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B n_items]
-"""
+
 
 class Improving(KGCN):
     def __init__(self, config, dataset):
+        super().__init__(config, dataset)
+        # TedRec的初始化，假设TedRec已经被正确初始化
+        self.ted_rec = TedRec(config, dataset)
         super().__init__(config, dataset)
         # 这里设置了一个名为 temperature 的属性，它的值从传入的 config 字典中获取。
         # 在深度学习中，温度参数通常用于控制输出分布的平滑程度，尤其是在softmax函数中。
         self.temperature = config['temperature']
         # plm_embedding 可能代表预训练语言模型（Pre-trained Language Model）的嵌入层。
-        self.plm_embedding = copy.deepcopy(dataset.plm_embedding)
         # 这两行代码创建了两个线性层（nn.Linear），它们通常用于神经网络中的线性变换。
         # 这里它们被用作门控机制（gating mechanism），可能用于控制信息流。
         self.item_gating = nn.Linear(self.hidden_size, 1)
@@ -173,30 +175,18 @@ class Improving(KGCN):
             config['n_exps'],
             config['adaptor_layers'],
             config['adaptor_dropout_prob'],
-            self.max_seq_length,
-            config['noise']
+            self.max_seq_length
         )
+        self.plm_embedding = copy.deepcopy(dataset.plm_embedding)
         # 创建了一个复数权重矩阵，它被初始化为具有小的随机值。这个权重可能用于某种复数运算
         self.complex_weight = nn.Parameter(
             torch.randn(1, self.max_seq_length // 2 + 1, self.hidden_size, 2, dtype=torch.float32) * 0.02)
         # 这两行代码使用正态分布初始化了item_gating和fusion_gating的权重。这是深度学习中常见的权重初始化方法，有助于模型的收敛。
         self.item_gating.weight.data.normal_(mean=0, std=0.02)
         self.fusion_gating.weight.data.normal_(mean=0, std=0.02)
-        # 添加软聚类的相关代码
-        self.num_clusters = config['num_clusters']
-        self.cluster_centers = nn.Parameter(torch.randn(self.num_clusters, self.hidden_size))
 
     def construct_directed_graph(self, user_item_sequences):
-        """
-        Construct a directed graph G = (V, E) from user-item interaction sequences.
-
-        Args:
-            user_item_sequences (list of lists): A list of user-item interaction sequences.
-
-        Returns:
-            V (set): The set of vertices (items) in the directed graph.
-            E (dict): The set of edges (item transitions) in the directed graph, where the key is the source item and the value is a dictionary containing the target item and the transition confidence score.
-        """
+       
         # Initialize the vertex set and edge dict
         V = set()
         E = {}
@@ -255,6 +245,7 @@ class Improving(KGCN):
 
         global_embeddings = super(Improving, self).global_info_aggregation(M, V, E, num_layers)
         return global_embeddings
+
     #软聚类
     def soft_clustering(self, global_embeddings):
         # 执行软聚类
@@ -268,12 +259,27 @@ class Improving(KGCN):
 
 
     def forward(self, inputs):
+        # 假设 'inputs' 包含了用户交互序列
+        user_item_sequences = inputs['user_item_sequences']
+
+        # 获取物品的嵌入表示
+        item_emb = self.item_embedding(user_item_sequences)
+
+        # 获取与物品相关联的文本特征的嵌入表示
+        # 这里假设 'plm_embedding' 是预训练语言模型的嵌入层
+        feature_emb = self.plm_embedding(user_item_sequences)
+        # 使用TedRec的方法获取融合了文本信息的ID表示
+        ted_output = self.ted_rec.contextual_convolution(item_emb, feature_emb)
+
         # Perform KGCN-based global information aggregation
         V, E = self.construct_directed_graph(inputs['user_item_sequences'])
         global_embeddings = self.global_info_aggregation(self.plm_embedding, V, E, 2)
 
         # Apply the MoE adaptor layer
         adapted_embeddings = self.moe_adaptor(global_embeddings)
+
+        # Soft clustering
+        subsequences = self.soft_clustering(adapted_embeddings)
 
         # Compute the logits and apply temperature scaling
         logits = self.item_gating(adapted_embeddings) / self.temperature
