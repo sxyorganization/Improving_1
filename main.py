@@ -5,27 +5,27 @@ from recbole.config import Config
 from recbole.data import data_preparation
 from recbole.utils import init_seed, init_logger, get_trainer, set_color
 
-#from tedrec import TedRec
-from  tedrec import Improving
+from tedrec import TedRec
+from tedrec import Improving
 from data.dataset import TedRecDataset
 
 
-def run_model(dataset, **kwargs):
+def run_model(dataset_name, **kwargs):
     # configurations initialization
     props = ['props/TedRec.yaml', 'props/overall.yaml']
     print(props)
 
     # configurations initialization
-    config = Config(model=Improving, dataset=dataset, config_file_list=props, config_dict=kwargs)
+    config = Config(model=Improving, dataset=dataset_name, config_file_list=props, config_dict=kwargs)
     init_seed(config['seed'], config['reproducibility'])
-    
+
     # logger initialization
     init_logger(config)
     logger = getLogger()
     logger.info(config)
 
-    # dataset filtering
-    dataset = TedRecDataset(config)
+    # dataset filtering and initialization
+    dataset = TedRecDataset(dataset_name, config)
     logger.info(dataset)
 
     # dataset splitting
@@ -48,7 +48,7 @@ def run_model(dataset, **kwargs):
 
     logger.info(set_color('best valid ', 'yellow') + f': {best_valid_result}')
     logger.info(set_color('test result', 'yellow') + f': {test_result}')
-    
+
     output_res = []
     for u, v in test_result.items():
         output_res.append(f'{v}')
