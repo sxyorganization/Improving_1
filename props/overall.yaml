@@ -5,10 +5,14 @@ alias_of_item_id: [item_id_list]
 load_col:
   inter: [user_id, item_id_list, item_id]
 train_neg_sample_args: ~
-data_args:
-order: TO
+eval_args:
+    group_by: user
+    order: TO
+    split: {'LS': 'valid_and_test'}
+    mode: full
 topk: [10, 20]
 metrics: [Recall, NDCG]
+
 valid_metric: NDCG@10
 eval_batch_size: 2048
 stopping_step: 10
