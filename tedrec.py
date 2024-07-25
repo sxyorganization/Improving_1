@@ -154,6 +154,7 @@ class TedRec(SASRec):
         test_items_emb = F.normalize(test_items_emb, dim=-1)
 
         scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B n_items]
+        return scores
 
 
 class Improving(KGCN):
@@ -273,7 +274,7 @@ class Improving(KGCN):
 
         # Perform KGCN-based global information aggregation
         V, E = self.construct_directed_graph(inputs['user_item_sequences'])
-        global_embeddings = self.global_info_aggregation(self.plm_embedding, V, E, 2)
+        global_embeddings = self.global_info_aggregation(ted_output, V, E, 2)
 
         # Apply the MoE adaptor layer
         adapted_embeddings = self.moe_adaptor(global_embeddings)
@@ -292,8 +293,8 @@ class Improving(KGCN):
         pos_item = interaction[self.ITEM_ID]
         neg_item = interaction[self.NEG_ITEM_ID]
 
-        user_e, pos_item_e = self.forward(user, pos_item)
-        user_e, neg_item_e = self.forward(user, neg_item)
+        user_e, pos_item_e = self.forward({'user_item_sequences': user})
+        user_e, neg_item_e = self.forward({'user_item_sequences': neg_item})
 
         pos_item_score = torch.mul(user_e, pos_item_e).sum(dim=1)
         neg_item_score = torch.mul(user_e, neg_item_e).sum(dim=1)
@@ -311,7 +312,7 @@ class Improving(KGCN):
     def predict(self, interaction):
         user = interaction[self.USER_ID]
         item = interaction[self.ITEM_ID]
-        user_e, item_e = self.forward(user, item)
+        user_e, item_e = self.forward({'user_item_sequences': user})
         return torch.mul(user_e, item_e).sum(dim=1)
 
     def full_sort_predict(self, interaction):
@@ -323,7 +324,7 @@ class Improving(KGCN):
         item = torch.unsqueeze(item_index, dim=0).repeat(user_index.shape[0], 1)
         item = torch.flatten(item)
 
-        user_e, item_e = self.forward(user, item)
+        user_e, item_e = self.forward({'user_item_sequences': user})
         score = torch.mul(user_e, item_e).sum(dim=1)
 
         return score.view(-1)
