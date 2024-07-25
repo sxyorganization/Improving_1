@@ -25,7 +25,7 @@ def run_model(dataset_name, **kwargs):
     logger.info(config)
 
     # dataset filtering and initialization
-    dataset = TedRecDataset(dataset_name, config)
+    dataset = TedRecDataset(config)
     logger.info(dataset)
 
     # dataset splitting
