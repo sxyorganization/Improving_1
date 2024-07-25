@@ -87,13 +87,14 @@ class TedRecDataset(SequentialDataset):
             for head_entity_id in head_entity_ids:
                 if head_entity_id not in self.head_entities:
                     raise ValueError(f'head_entity_id [{head_entity_id}] not exist.')
-# 新增方法：获取Improving模型所需的嵌入
-def get_improving_embeddings(self, user_interaction_sequence):
-    # 假设 user_interaction_sequence 是用户交互的项目ID列表
-    sequence_embeddings = []
-    for item_id in user_interaction_sequence:
-        item_embedding = self.plm_embedding(torch.tensor([item_id], dtype=torch.long))
-        sequence_embeddings.append(item_embedding)
-    sequence_embeddings = torch.cat(sequence_embeddings, dim=0)
-    return sequence_embeddings
+
+    # 新增方法：获取Improving模型所需的嵌入
+    def get_improving_embeddings(self, user_interaction_sequence):
+        # 假设 user_interaction_sequence 是用户交互的项目ID列表
+        sequence_embeddings = []
+        for item_id in user_interaction_sequence:
+            item_embedding = self.plm_embedding(torch.tensor([item_id], dtype=torch.long))
+            sequence_embeddings.append(item_embedding)
+        sequence_embeddings = torch.cat(sequence_embeddings, dim=0)
+        return sequence_embeddings
 
