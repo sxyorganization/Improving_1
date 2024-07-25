@@ -8,13 +8,11 @@ from recbole.data.dataset import SequentialDataset
 # 这段代码的主要目的就是从预训练的BERT模型中提取嵌入权重,并将其转换为可训练的Embedding层
 # 继承自SequentialDataset
 class TedRecDataset(SequentialDataset):
-    def __init__(self,dataset, config,distribution='uniform'):
-        self.dataset = dataset
-
-
+    def __init__(self,config):
+        #self.dataset = dataset
         # 确保 dataset 是一个对象，而不是字符串
-        if isinstance(dataset, str):
-            raise TypeError("dataset 参数应该是一个对象，而不是字符串")
+        #if isinstance(dataset, str):
+        #    raise TypeError("dataset 参数应该是一个对象，而不是字符串")
         super().__init__(config)
         ## 从配置中获取PLM的维度大小和文件后缀
         self.plm_size = config['plm_size']
@@ -64,7 +62,7 @@ class TedRecDataset(SequentialDataset):
     #api文档新添加的内容
     def _uni_sampling(self, sample_num):
         return np.random.randint(1, self.entity_num, sample_num)
-"""
+
     def _get_candidates_list(self):
 
         return list(self.hid_list) + list(self.tid_list)
@@ -89,5 +87,13 @@ class TedRecDataset(SequentialDataset):
             for head_entity_id in head_entity_ids:
                 if head_entity_id not in self.head_entities:
                     raise ValueError(f'head_entity_id [{head_entity_id}] not exist.')
-"""
+# 新增方法：获取Improving模型所需的嵌入
+def get_improving_embeddings(self, user_interaction_sequence):
+    # 假设 user_interaction_sequence 是用户交互的项目ID列表
+    sequence_embeddings = []
+    for item_id in user_interaction_sequence:
+        item_embedding = self.plm_embedding(torch.tensor([item_id], dtype=torch.long))
+        sequence_embeddings.append(item_embedding)
+    sequence_embeddings = torch.cat(sequence_embeddings, dim=0)
+    return sequence_embeddings
 
