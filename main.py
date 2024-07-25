@@ -10,13 +10,13 @@ from tedrec import Improving
 from data.dataset import TedRecDataset
 
 
-def run_model(dataset_name, **kwargs):
+def run_model(dataset, **kwargs):
     # configurations initialization
     props = ['props/TedRec.yaml', 'props/overall.yaml']
     print(props)
 
     # configurations initialization
-    config = Config(model=Improving, dataset=dataset_name, config_file_list=props, config_dict=kwargs)
+    config = Config(model=Improving, dataset=dataset, config_file_list=props, config_dict=kwargs)
     init_seed(config['seed'], config['reproducibility'])
 
     # logger initialization
