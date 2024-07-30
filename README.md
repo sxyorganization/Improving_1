@@ -28,4 +28,5 @@ def get_improving_embeddings(self, user_interaction_sequence):
         sequence_embeddings.append(item_embedding)
     sequence_embeddings = torch.cat(sequence_embeddings, dim=0)
     return sequence_embeddings
-
+    #7.30修改了tedrec.py，上传了修改的代码，improving的我先替换掉了
+    首先我创建了class SSTModel，具体方法还没有写，还在查资料中，其次，我将contextual_convolution的方法改成了对sst之后的两个特征向量进行融合
