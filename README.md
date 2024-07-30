@@ -27,4 +27,5 @@ def get_improving_embeddings(self, user_interaction_sequence):<br>
     sequence_embeddings = torch.cat(sequence_embeddings, dim=0)<br>
     return sequence_embeddings  <br>
 <h1 style="font-size:50px;">##7.30修改了tedrec.py，上传了修改的代码，improving的我先替换掉了</h1>
-    首先我创建了class SSTModel，具体方法还没有写，还在查资料中，其次，我将contextual_convolution的方法改成了对sst之后的两个特征向量进行融合。
+    首先我创建了class SSTModel，具体方法还没有写，还在查资料中，其次，我将contextual_convolution的方法改成了对sst之后的两个特征向量进行融合。<br>
+    https://blog.csdn.net/weixin_39402231/article/details/126369658是csdn上的基于python的同步压缩变换的描述和一些基础知识。
