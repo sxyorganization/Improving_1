@@ -2,20 +2,19 @@ n_layers: 2
 n_heads: 2
 hidden_size: 300
 inner_size: 256
-hidden_dropout_prob: 0.6
-attn_dropout_prob: 0.6
+hidden_dropout_prob: 0.5
+attn_dropout_prob: 0.5
 hidden_act: 'gelu'
 layer_norm_eps: 1e-12
-initializer_range: 0.05
+initializer_range: 0.02
 loss_type: 'CE'
 
 plm_suffix: feat1CLS
 plm_size: 768
-max_seq_length: 50
-adaptor_dropout_prob: 0.4
+adaptor_dropout_prob: 0.2
 adaptor_layers: [768,300]
-noise: True
-temperature: 0.09
+temperature: 0.07
 n_exps: 8
-data_args:
-order: TO
+window_length: 256
+hop_length: 128
+n_fft: 512
