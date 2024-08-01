@@ -63,8 +63,31 @@ class MoEAdaptorLayer(nn.Module):
         return multiple_outputs.sum(dim=-2)
 
 
-class SSTModel:
-    pass
+class SSTModel(nn.Module):
+    def __init__(self, config):
+        super(SSTModel, self).__init__()
+        self.window_length =config['window_length']
+        self.hop_length = config['hop_length']
+        self.n_fft = config['n_fft']
+
+    def forward(self, x):
+        def forward(self, x):
+            if not isinstance(x, torch.Tensor):
+                x = torch.tensor(x, dtype=torch.float32)
+            # 计算短时傅里叶变换
+            stft = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.window_length,
+                              return_complex=True)
+            # 计算瞬时频率
+            phase = torch.angle(stft)
+            instantaneous_frequency = torch.diff(phase, dim=-1)
+            # 计算同步压缩变换
+            sst = torch.zeros_like(stft)
+            for t in range(stft.shape[-1]):
+                for f in range(stft.shape[-2]):
+                    k = int(f + instantaneous_frequency[f, t])
+                    if 0 <= k < stft.shape[-2]:
+                        sst[k, t] += stft[f, t]
+            return sst
 
 
 class TedRec(SASRec):
@@ -75,6 +98,7 @@ class TedRec(SASRec):
         #这里设置了一个名为 temperature 的属性，它的值从传入的 config 字典中获取。
         # 在深度学习中，温度参数通常用于控制输出分布的平滑程度，尤其是在softmax函数中。
         self.temperature = config['temperature']
+        self.hidden_size = config['hidden_size']
         #plm_embedding 可能代表预训练语言模型（Pre-trained Language Model）的嵌入层。
         self.plm_embedding = copy.deepcopy(dataset.plm_embedding)
         #这两行代码创建了两个线性层（nn.Linear），它们通常用于神经网络中的线性变换。
@@ -89,6 +113,7 @@ class TedRec(SASRec):
             config['adaptor_dropout_prob'],
             self.max_seq_length
         )
+
         self.sst_model = SSTModel(config)  # 引入 SST 模型
         #创建了一个复数权重矩阵，它被初始化为具有小的随机值。这个权重可能用于某种复数运算
         #self.complex_weight = nn.Parameter(torch.randn(1, self.max_seq_length // 2 + 1, self.hidden_size, 2, dtype=torch.float32) * 0.02)
@@ -110,23 +135,14 @@ class TedRec(SASRec):
         contextual_emb = 2 * (item_sst * torch.sigmoid(item_gate_w) + feature_sst * torch.sigmoid(fusion_gate_w))
         return contextual_emb
 
-    def synchronous_sparse_transform(self, stft_input):
-        """Compute Synchronous Sparse Transform"""
-        # Implement your custom SST algorithm here
-        # This is a placeholder, you need to provide the actual implementation
-        sst_output = stft_input * 0.5
-        return sst_output
-
     def forward(self, item_seq, item_emb, item_seq_len):
         position_ids = torch.arange(item_seq.size(1), dtype=torch.long, device=item_seq.device)
         position_ids = position_ids.unsqueeze(0).expand_as(item_seq)
         position_embedding = self.position_embedding(position_ids)
-
         input_emb = self.contextual_convolution(self.item_embedding(item_seq), item_emb)
         input_emb = input_emb + position_embedding
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
-
         extended_attention_mask = self.get_attention_mask(item_seq)
         trm_output = self.trm_encoder(input_emb, extended_attention_mask, output_all_encoded_layers=True)
         output = trm_output[-1]
@@ -140,10 +156,8 @@ class TedRec(SASRec):
         item_emb_list = self.moe_adaptor(self.plm_embedding(item_seq))
         seq_output = self.forward(item_seq, item_emb_list, item_seq_len)
         test_item_emb = self.item_embedding.weight
-
         seq_output = F.normalize(seq_output, dim=1)
         test_item_emb = F.normalize(test_item_emb, dim=1)
-
         logits = torch.matmul(seq_output, test_item_emb.transpose(0, 1)) / self.temperature
         pos_items = interaction[self.POS_ITEM_ID]
         loss = self.loss_fct(logits, pos_items)
@@ -155,9 +169,7 @@ class TedRec(SASRec):
         item_emb_list = self.moe_adaptor(self.plm_embedding(item_seq))
         seq_output = self.forward(item_seq, item_emb_list, item_seq_len)
         test_items_emb = self.item_embedding.weight
-
         seq_output = F.normalize(seq_output, dim=-1)
         test_items_emb = F.normalize(test_items_emb, dim=-1)
-
         scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B n_items]
         return scores
