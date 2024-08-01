@@ -26,6 +26,13 @@ def get_improving_embeddings(self, user_interaction_sequence):<br>
         sequence_embeddings.append(item_embedding)<br>
     sequence_embeddings = torch.cat(sequence_embeddings, dim=0)<br>
     return sequence_embeddings  <br>
-<h1 style="font-size:50px;">##7.30修改了tedrec.py，上传了修改的代码，improving的我先替换掉了</h1>
+<h1 style="font-size:50px;">7.30修改了tedrec.py，上传了修改的代码，improving的我先替换掉了</h1>
     首先我创建了class SSTModel，具体方法还没有写，还在查资料中，其次，我将contextual_convolution的方法改成了对sst之后的两个特征向量进行融合。<br>
     https://blog.csdn.net/weixin_39402231/article/details/126369658是csdn上的基于python的同步压缩变换的描述和一些基础知识。
+<h1 style="font-size:50px;">8.1修改了tedrec.py和TedRec.yaml，上传了修改的代码</h1>
+1.tedrec里面添加了sst的方法，但是现在出现了一个：TypeError: linear(): argument 'input' (position 1) must be Tensor, not NoneType的报错问题，还在修改中，先把具体的方法上传上来<br>
+2.在TedRec.yaml里面添加了新的参数：<br>
+window_length: 256，作用：这是每个窗口的长度，即每次进行傅里叶变换时所使用的信号片段的长度。<br>
+hop_length: 128，作用：这是窗口之间的步长，即每次移动窗口时的距离。<br>
+n_fft: 512，作用：这是傅里叶变换的点数，即每个窗口进行傅里叶变换时使用的点数<br>
+原作者的其他参数并没有调整，初步想的是先把写的方法运行出来了再进行调参。
