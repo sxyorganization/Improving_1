@@ -69,25 +69,37 @@ class SSTModel(nn.Module):
         self.window_length =config['window_length']
         self.hop_length = config['hop_length']
         self.n_fft = config['n_fft']
+        self.window = torch.hann_window(self.window_length)  # 使用 Hann 窗口，并确保大小匹配 win_length
 
     def forward(self, x):
-        def forward(self, x):
-            if not isinstance(x, torch.Tensor):
-                x = torch.tensor(x, dtype=torch.float32)
-            # 计算短时傅里叶变换
-            stft = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.window_length,
-                              return_complex=True)
-            # 计算瞬时频率
-            phase = torch.angle(stft)
-            instantaneous_frequency = torch.diff(phase, dim=-1)
-            # 计算同步压缩变换
-            sst = torch.zeros_like(stft)
-            for t in range(stft.shape[-1]):
-                for f in range(stft.shape[-2]):
-                    k = int(f + instantaneous_frequency[f, t])
-                    if 0 <= k < stft.shape[-2]:
-                        sst[k, t] += stft[f, t]
-            return sst
+        if not isinstance(x, torch.Tensor):
+            x = torch.tensor(x, dtype=torch.float32)
+
+        # 如果输入是 3D 的，将其转换为 2D
+        if x.dim() == 3:
+            x = x.view(-1, x.size(-1))
+
+        # 计算短时傅里叶变换
+        stft = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.window_length,
+                          window=self.window, return_complex=True)
+
+        # 计算瞬时频率
+        phase = torch.angle(stft)
+        instantaneous_frequency = torch.diff(phase, dim=-1)
+
+        # 计算同步压缩变换
+        sst = torch.zeros_like(stft)
+        for t in range(stft.shape[-1]):
+            for f in range(stft.shape[-2]):
+                # 确保 instantaneous_frequency[f, t] 是一个标量
+                if instantaneous_frequency[f, t].numel() == 1:
+                    k = int(f + instantaneous_frequency[f, t].item())
+                else:
+                    k = int(f + instantaneous_frequency[f, t][0].item())  # 使用第一个元素
+                if 0 <= k < stft.shape[-2]:
+                    sst[k, t] += stft[f, t]
+
+        return sst
 
 
 class TedRec(SASRec):
@@ -124,8 +136,23 @@ class TedRec(SASRec):
     def contextual_convolution(self, item_emb, feature_emb):
         """Sequence-Level Representation Fusion"""
         # 对 item_emb 和 feature_emb 进行 SST 处理
+        if not isinstance(item_emb, torch.Tensor):
+            item_emb = torch.tensor(item_emb, dtype=torch.float32)
+        if not isinstance(feature_emb, torch.Tensor):
+            feature_emb = torch.tensor(feature_emb, dtype=torch.float32)
         item_sst = self.sst_model(item_emb)
         feature_sst = self.sst_model(feature_emb)
+
+        # 将 item_sst 和 feature_sst 转换为浮点类型
+        item_sst = item_sst.real
+        feature_sst = feature_sst.real
+        # 将 item_sst 和 feature_sst 变为连续的，然后重新整形为二维张量
+        item_sst = item_sst.contiguous().view(item_sst.size(0), -1)
+        feature_sst = feature_sst.contiguous().view(feature_sst.size(0), -1)
+        # 确保 item_sst 和 feature_sst 的形状与线性层的输入形状匹配
+        input_dim = self.item_gating.in_features
+        item_sst = item_sst[:, :input_dim]
+        feature_sst = feature_sst[:, :input_dim]
 
         # 门控机制
         item_gate_w = self.item_gating(item_sst)
@@ -140,6 +167,13 @@ class TedRec(SASRec):
         position_ids = position_ids.unsqueeze(0).expand_as(item_seq)
         position_embedding = self.position_embedding(position_ids)
         input_emb = self.contextual_convolution(self.item_embedding(item_seq), item_emb)
+        # 打印形状以调试
+        print(f"input_emb shape: {input_emb.shape}")
+        print(f"position_embedding shape: {position_embedding.shape}")
+
+        # 确保 position_embedding 的形状与 input_emb 匹配
+        if position_embedding.shape[1] != input_emb.shape[1]:
+            position_embedding = position_embedding[:, :input_emb.shape[1], :]
         input_emb = input_emb + position_embedding
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
