@@ -36,3 +36,5 @@ window_length: 256，作用：这是每个窗口的长度，即每次进行傅�
 hop_length: 128，作用：这是窗口之间的步长，即每次移动窗口时的距离。<br>
 n_fft: 512，作用：这是傅里叶变换的点数，即每个窗口进行傅里叶变换时使用的点数<br>
 原作者的其他参数并没有调整，初步想的是先把写的方法运行出来了再进行调参。
+<h1 style="font-size:50px;">8.9修改了tedrec.py，上传了修改的代码</h1>
+遇到了RuntimeError: The size of tensor a (102400) must match the size of tensor b (50) at non-singleton dimension 1
