@@ -7,6 +7,8 @@ from recbole.model.layers import TransformerEncoder, VanillaAttention
 from recbole.model.loss import BPRLoss
 from recbole.utils import FeatureType
 from scipy.signal import welch, csd
+import pywt
+import numpy as np
 
     
 class DTRLayer(nn.Module):
@@ -69,38 +71,48 @@ class SSTModel(nn.Module):
         self.window_length =config['window_length']
         self.hop_length = config['hop_length']
         self.n_fft = config['n_fft']
-        self.window = torch.hann_window(self.window_length)  # 使用 Hann 窗口，并确保大小匹配 win_length
+        self.wavelet = config['wavelet']  # 使用 Daubechies 小波
 
     def forward(self, x):
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x, dtype=torch.float32)
 
-        # 如果输入是 3D 的，将其转换为 2D
-        if x.dim() == 3:
-            x = x.view(-1, x.size(-1))
+        coeffs = []
+        max_len = 0
+        max_depth = 0
+        for i in range(x.size(0)):
+            c = pywt.wavedec(x[i].detach().numpy(), self.wavelet)
+            coeffs.append([torch.tensor(arr, dtype=torch.float32) for arr in c])
+            max_len = max(max_len, max(arr.size(0) for arr in coeffs[-1]))
+            max_depth = max(max_depth, len(c))
 
-        # 计算短时傅里叶变换
-        stft = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.window_length,
-                          window=self.window, return_complex=True)
+        # 填充或裁剪小波系数，使其形状一致
+        for i in range(len(coeffs)):
+            for j in range(len(coeffs[i])):
+                if coeffs[i][j].size(0) < max_len:
+                    coeffs[i][j] = F.pad(coeffs[i][j], (0, max_len - coeffs[i][j].size(0)))
+                elif coeffs[i][j].size(0) > max_len:
+                    coeffs[i][j] = coeffs[i][j][:max_len]
 
-        # 计算瞬时频率
-        phase = torch.angle(stft)
-        instantaneous_frequency = torch.diff(phase, dim=-1)
+        # 如果深度不一致，填充空的张量
+            while len(coeffs[i]) < max_depth:
+                coeffs[i].append(torch.zeros(max_len, dtype=torch.float32))
+
+        # 将小波系数列表转换为张量
+        coeffs_tensor = torch.stack([torch.stack(c) for c in coeffs])
+
+        # 计算瞬时频率（这里需要根据小波系数的具体结构进行调整）
+        instantaneous_frequency = torch.diff(torch.angle(coeffs_tensor), dim=-1)
 
         # 计算同步压缩变换
-        sst = torch.zeros_like(stft)
-        for t in range(stft.shape[-1]):
-            for f in range(stft.shape[-2]):
-                # 确保 instantaneous_frequency[f, t] 是一个标量
-                if instantaneous_frequency[f, t].numel() == 1:
-                    k = int(f + instantaneous_frequency[f, t].item())
-                else:
-                    k = int(f + instantaneous_frequency[f, t][0].item())  # 使用第一个元素
-                if 0 <= k < stft.shape[-2]:
-                    sst[k, t] += stft[f, t]
+        sst = torch.zeros_like(coeffs_tensor)
+        for t in range(sst.shape[-1]):
+            for f in range(sst.shape[-2]):
+                k = (f + instantaneous_frequency[:, f, t]).long()
+                k = torch.clamp(k, 0, sst.shape[-2] - 1)
+                sst[:, k, t] += coeffs_tensor[:, f, t]
 
         return sst
-
 
 class TedRec(SASRec):
     """Text-ID fusion approach for sequential recommendation
