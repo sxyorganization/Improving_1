@@ -74,4 +74,9 @@ Traceback (most recent call last):
     return forward_call(*args, **kwargs)
   File "C:\Users\28258\anaconda3\envs\pytorch\lib\site-packages\torch\nn\modules\linear.py", line 116, in forward
     return F.linear(input, self.weight, self.bias)
-RuntimeError: mat1 and mat2 shapes cannot be multiplied (50x10 and 300x1)
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (50x10 and 300x1)<br>
+反复循环这些：item_sst shape: torch.Size([2048, 300])
+feature_sst shape: torch.Size([2048, 300])
+input_emb shape: torch.Size([2048, 50, 300])
+position_embedding shape: torch.Size([2048, 50, 300])
+但是维度对上了，都一致了。
