@@ -137,9 +137,9 @@ class SSTModel(nn.Module):
                 coeffs[i] = coeffs[i][:max_length]
 
         # 打印调试信息
-        for i in range(len(coeffs)):
-            for j in range(len(coeffs[i])):
-                print(f"coeffs[{i}][{j}] shape: {coeffs[i][j].shape}")
+        #for i in range(len(coeffs)):
+        #    for j in range(len(coeffs[i])):
+        #        print(f"coeffs[{i}][{j}] shape: {coeffs[i][j].shape}")
 
         #将每个子列表中的张量按照形状分组
         grouped_coeffs = [
@@ -149,8 +149,8 @@ class SSTModel(nn.Module):
         stacked_coeffs = [torch.stack(group) for group in grouped_coeffs]
 
         # 打印调试信息
-        for i in range(len(stacked_coeffs)):
-            print(f"stacked_coeffs[{i}] shape: {stacked_coeffs[i].shape}")
+        #for i in range(len(stacked_coeffs)):
+        #    print(f"stacked_coeffs[{i}] shape: {stacked_coeffs[i].shape}")
 
         #coeffs_tensor = torch.stack([torch.cat(coeffs[i], dim=1) for i in range(len(coeffs))])
 
@@ -210,23 +210,16 @@ class TedRec(SASRec):
 
         # 确保 item_emb 和 feature_emb 的 batch 维度一致
         if item_emb.size(0) != feature_emb.size(0):
-            # 对齐 batch 维度
-            if item_emb.size(0) < feature_emb.size(0):
-                item_emb = item_emb.expand(feature_emb.size(0), *item_emb.shape[1:])
+            if item_emb.size(0) > feature_emb.size(0):
+                repeat_factor = (item_emb.size(0) + feature_emb.size(0) - 1) // feature_emb.size(0)
+                feature_emb = feature_emb.repeat(repeat_factor, 1)[:item_emb.size(0)]
             else:
-                feature_emb = feature_emb.expand(item_emb.size(0), *feature_emb.shape[1:])
+                repeat_factor = (feature_emb.size(0) + item_emb.size(0) - 1) // item_emb.size(0)
+                item_emb = item_emb.repeat(repeat_factor, 1)[:feature_emb.size(0)]
 
         # 对 item_emb 和 feature_emb 进行 SST 处理
         item_sst = self.sst_model(item_emb)
         feature_sst = self.sst_model(feature_emb)
-
-        # 确保 item_sst 和 feature_sst 的 batch 维度一致
-        if item_sst.size(0) != feature_sst.size(0):
-            # 对齐 batch 维度
-            if item_sst.size(0) < feature_sst.size(0):
-                item_sst = item_sst.expand(feature_sst.size(0), *item_sst.shape[1:])
-            else:
-                feature_sst = feature_sst.expand(item_sst.size(0), *feature_sst.shape[1:])
 
         # 将 item_sst 和 feature_sst 转换为浮点类型
         item_sst = item_sst.real
@@ -235,22 +228,27 @@ class TedRec(SASRec):
         item_sst = item_sst.contiguous().view(item_sst.size(0), -1)
         feature_sst = feature_sst.contiguous().view(feature_sst.size(0), -1)
 
+        # 确保特征维度一致
+        input_dim = self.item_gating.in_features
+        if item_sst.size(1) != input_dim:
+            if item_sst.size(1) < input_dim:
+                item_sst = F.pad(item_sst, (0, input_dim - item_sst.size(1)))
+            else:
+                item_sst = item_sst[:, :input_dim]
+        if feature_sst.size(1) != input_dim:
+            if feature_sst.size(1) < input_dim:
+                feature_sst = F.pad(feature_sst, (0, input_dim - feature_sst.size(1)))
+            else:
+                feature_sst = feature_sst[:, :input_dim]
+
         # 确保 item_sst 和 feature_sst 的 batch 维度一致
         #item_sst = item_sst.expand(feature_sst.size(0), -1)
 
         # 确保 item_sst 和 feature_sst 的形状与线性层的输入形状匹配
         # 确保特征维度一致
-        input_dim = self.item_gating.in_features
-        item_sst = item_sst[:, :input_dim]
-        feature_sst = feature_sst[:, :input_dim]
-
-        # 确保 item_sst 和 feature_sst 的 batch 维度一致
-        if item_sst.size(0) != feature_sst.size(0):
-            # 对齐 batch 维度
-            if item_sst.size(0) < feature_sst.size(0):
-                item_sst = item_sst.repeat(feature_sst.size(0) // item_sst.size(0) + 1, 1)
-            else:
-                feature_sst = feature_sst.repeat(item_sst.size(0) // feature_sst.size(0) + 1, 1)
+        #input_dim = self.item_gating.in_features
+        #item_sst = item_sst[:, :input_dim]
+        #feature_sst = feature_sst[:, :input_dim]
 
         # 打印调试信息
         print(f"item_sst shape: {item_sst.shape}")
@@ -271,15 +269,16 @@ class TedRec(SASRec):
 
         # 使用contextual_convolution 对每个时间步进行融合
         input_emb = []
-        for i in range(item_seq.size(0)):
+        for i in range(item_seq.size(1)):
             item_emb_i = item_emb[i]
             if not isinstance(item_emb_i, torch.Tensor):
                 item_emb_i = torch.tensor(item_emb_i, dtype=torch.float32)
-            input_emb.append(self.contextual_convolution(self.item_embedding(item_seq[i]), item_emb_i))
-        input_emb = torch.stack(input_emb, dim=0)
+            input_emb.append(self.contextual_convolution(self.item_embedding(item_seq[:,i]), item_emb_i))
+        input_emb = torch.stack(input_emb, dim=1)
 
         # 修改位置编码维度
-        position_embedding = position_embedding.unsqueeze(1).expand(-1, input_emb.shape[1], -1)
+        position_embedding = position_embedding.expand(-1, -1,input_emb.shape[2])
+
         # input_emb = self.contextual_convolution(self.item_embedding(item_seq), item_emb)
 
         # 打印形状以调试
@@ -287,10 +286,10 @@ class TedRec(SASRec):
         print(f"position_embedding shape: {position_embedding.shape}")
 
         # 确保 position_embedding 的形状与 input_emb 匹配
-        if position_embedding.shape[1] != input_emb.shape[1]:
-            position_embedding = position_embedding[:, :input_emb.shape[1], :]
+        #if position_embedding.shape[2] != input_emb.shape[2]:
+        #    position_embedding = position_embedding[:,:, :input_emb.shape[2]]
         # 修改相加操作
-        input_emb = input_emb + position_embedding[:, :input_emb.shape[1], :]
+        input_emb = input_emb + position_embedding
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
         extended_attention_mask = self.get_attention_mask(item_seq)
