@@ -38,3 +38,40 @@ n_fft: 512，作用：这是傅里叶变换的点数，即每个窗口进行傅�
 原作者的其他参数并没有调整，初步想的是先把写的方法运行出来了再进行调参。
 <h1 style="font-size:50px;">8.9修改了tedrec.py，上传了修改的代码</h1>
 遇到了RuntimeError: The size of tensor a (102400) must match the size of tensor b (50) at non-singleton dimension 1
+<h1 style="font-size:50px;">8.27上传了修改的代码，有一些新的问题</h1>
+coeffs[49][0] shape: torch.Size([10, 1])
+coeffs[49][1] shape: torch.Size([10, 1])
+coeffs[49][2] shape: torch.Size([19, 1])
+coeffs[49][3] shape: torch.Size([38, 1])
+coeffs[49][4] shape: torch.Size([75, 1])
+coeffs[49][5] shape: torch.Size([150, 1])
+stacked_coeffs[0] shape: torch.Size([50, 10, 1])
+stacked_coeffs[1] shape: torch.Size([50, 10, 1])
+stacked_coeffs[2] shape: torch.Size([50, 19, 1])
+stacked_coeffs[3] shape: torch.Size([50, 38, 1])
+stacked_coeffs[4] shape: torch.Size([50, 75, 1])
+stacked_coeffs[5] shape: torch.Size([50, 150, 1])
+item_sst shape: torch.Size([50, 10])
+feature_sst shape: torch.Size([50, 10])
+Traceback (most recent call last):
+  File "E:\python\TedRec-main\main.py", line 69, in <module>
+    run_model(args.d)
+  File "E:\python\TedRec-main\main.py", line 41, in run_model
+    best_valid_score, best_valid_result = trainer.fit(
+  File "C:\Users\28258\anaconda3\envs\pytorch\lib\site-packages\recbole\trainer\trainer.py", line 439, in fit
+    train_loss = self._train_epoch(
+  File "C:\Users\28258\anaconda3\envs\pytorch\lib\site-packages\recbole\trainer\trainer.py", line 245, in _train_epoch
+    losses = loss_func(interaction)
+  File "E:\python\TedRec-main\tedrec.py", line 307, in calculate_loss
+    seq_output = self.forward(item_seq, item_emb_list, item_seq_len)
+  File "E:\python\TedRec-main\tedrec.py", line 278, in forward
+    input_emb.append(self.contextual_convolution(self.item_embedding(item_seq[i]), item_emb_i))
+  File "E:\python\TedRec-main\tedrec.py", line 260, in contextual_convolution
+    item_gate_w = self.item_gating(item_sst)
+  File "C:\Users\28258\anaconda3\envs\pytorch\lib\site-packages\torch\nn\modules\module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\28258\anaconda3\envs\pytorch\lib\site-packages\torch\nn\modules\module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\28258\anaconda3\envs\pytorch\lib\site-packages\torch\nn\modules\linear.py", line 116, in forward
+    return F.linear(input, self.weight, self.bias)
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (50x10 and 300x1)
