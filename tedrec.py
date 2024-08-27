@@ -208,9 +208,25 @@ class TedRec(SASRec):
         if not isinstance(feature_emb, torch.Tensor):
             feature_emb = torch.tensor(feature_emb, dtype=torch.float32)
 
+        # 确保 item_emb 和 feature_emb 的 batch 维度一致
+        if item_emb.size(0) != feature_emb.size(0):
+            # 对齐 batch 维度
+            if item_emb.size(0) < feature_emb.size(0):
+                item_emb = item_emb.expand(feature_emb.size(0), *item_emb.shape[1:])
+            else:
+                feature_emb = feature_emb.expand(item_emb.size(0), *feature_emb.shape[1:])
+
         # 对 item_emb 和 feature_emb 进行 SST 处理
         item_sst = self.sst_model(item_emb)
         feature_sst = self.sst_model(feature_emb)
+
+        # 确保 item_sst 和 feature_sst 的 batch 维度一致
+        if item_sst.size(0) != feature_sst.size(0):
+            # 对齐 batch 维度
+            if item_sst.size(0) < feature_sst.size(0):
+                item_sst = item_sst.expand(feature_sst.size(0), *item_sst.shape[1:])
+            else:
+                feature_sst = feature_sst.expand(item_sst.size(0), *feature_sst.shape[1:])
 
         # 将 item_sst 和 feature_sst 转换为浮点类型
         item_sst = item_sst.real
@@ -218,10 +234,27 @@ class TedRec(SASRec):
         # 将 item_sst 和 feature_sst 变为连续的，然后重新整形为二维张量
         item_sst = item_sst.contiguous().view(item_sst.size(0), -1)
         feature_sst = feature_sst.contiguous().view(feature_sst.size(0), -1)
+
+        # 确保 item_sst 和 feature_sst 的 batch 维度一致
+        #item_sst = item_sst.expand(feature_sst.size(0), -1)
+
         # 确保 item_sst 和 feature_sst 的形状与线性层的输入形状匹配
+        # 确保特征维度一致
         input_dim = self.item_gating.in_features
         item_sst = item_sst[:, :input_dim]
         feature_sst = feature_sst[:, :input_dim]
+
+        # 确保 item_sst 和 feature_sst 的 batch 维度一致
+        if item_sst.size(0) != feature_sst.size(0):
+            # 对齐 batch 维度
+            if item_sst.size(0) < feature_sst.size(0):
+                item_sst = item_sst.repeat(feature_sst.size(0) // item_sst.size(0) + 1, 1)
+            else:
+                feature_sst = feature_sst.repeat(item_sst.size(0) // feature_sst.size(0) + 1, 1)
+
+        # 打印调试信息
+        print(f"item_sst shape: {item_sst.shape}")
+        print(f"feature_sst shape: {feature_sst.shape}")
 
         # 门控机制
         item_gate_w = self.item_gating(item_sst)
@@ -238,12 +271,12 @@ class TedRec(SASRec):
 
         # 使用contextual_convolution 对每个时间步进行融合
         input_emb = []
-        for i in range(item_seq.size(1)):
-            # 确保 item_emb[i] 是张量类型
-            if not isinstance(item_emb[i], torch.Tensor):
-                item_emb[i] = torch.tensor(item_emb[i], dtype=torch.float32)
-            input_emb.append(self.contextual_convolution(self.item_embedding(item_seq[:, i]), item_emb[i]))
-        input_emb = torch.stack(input_emb, dim=1)
+        for i in range(item_seq.size(0)):
+            item_emb_i = item_emb[i]
+            if not isinstance(item_emb_i, torch.Tensor):
+                item_emb_i = torch.tensor(item_emb_i, dtype=torch.float32)
+            input_emb.append(self.contextual_convolution(self.item_embedding(item_seq[i]), item_emb_i))
+        input_emb = torch.stack(input_emb, dim=0)
 
         # 修改位置编码维度
         position_embedding = position_embedding.unsqueeze(1).expand(-1, input_emb.shape[1], -1)
