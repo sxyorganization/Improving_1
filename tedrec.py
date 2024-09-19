@@ -74,70 +74,66 @@ class SSTModel(nn.Module):
         self.window_length = config['window_length']
         self.hop_length = config['hop_length']
         self.n_fft = config['n_fft']
-        self.wavelet = pywt.Wavelet('db1')
+        self.wavelet = config['wavelet']
+        self.level = 1  # 固定小波分解层数
 
     def forward(self, x):
         # 确保输入在正确设备上
         if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x, dtype=torch.float32, device=x.device)  # 直接使用设备
+            x = torch.tensor(x, dtype=torch.float32, device=x.device)
 
         coeffs = []
-        level = 5  # 固定小波分解层数
-        max_depth = level  # 最大层数直接设置为 level
+        max_lengths = [0] * (self.level + 1)
 
-        # 记录每层级的最大长度，用于对齐
-        max_lengths = [0] * (level + 1)
-
-        # 遍历每个样本
+        # 遍历每个样本进行小波分解，并记录最大长度
         for i in range(x.size(0)):
-            # 对每个样本进行小波分解
-            c = pywt.wavedec(x[i].detach().cpu().numpy(), self.wavelet, level=level)
-
-            # 将小波系数转换为 PyTorch 张量，并记录每个层级的最大长度
-            c_tensors = [torch.tensor(arr, dtype=torch.float32, device=x.device) for arr in c]  # 确保在正确设备上
+            c = pywt.wavedec(x[i].detach().cpu().numpy(), self.wavelet, level=self.level)
+            c_tensors = [torch.tensor(arr, dtype=torch.float32, device=x.device) for arr in c]
             coeffs.append(c_tensors)
 
             for j in range(len(c_tensors)):
                 max_lengths[j] = max(max_lengths[j], c_tensors[j].size(0))
 
-        # 填充或裁剪小波系数，使每一层的长度一致
+        # 填充或裁剪小波系数
         for i in range(len(coeffs)):
             for j in range(len(coeffs[i])):
-                # 确保每个系数数组的长度与该层级的最大长度对齐
-                if coeffs[i][j].size(0) < max_lengths[j]:
-                    coeffs[i][j] = F.pad(coeffs[i][j], (0, max_lengths[j] - coeffs[i][j].size(0)))
-                elif coeffs[i][j].size(0) > max_lengths[j]:
+                length = coeffs[i][j].size(0)
+                if length < max_lengths[j]:
+                    # 使用最大值填充
+                    max_value = coeffs[i][j].max().item()
+                    coeffs[i][j] = F.pad(coeffs[i][j], (0, max_lengths[j] - length), value=max_value)
+                else:
                     coeffs[i][j] = coeffs[i][j][:max_lengths[j]]
 
-            # 填充使所有样本的分解层数一致
-            while len(coeffs[i]) < max_depth + 1:
-                coeffs[i].append(torch.zeros(max_lengths[len(coeffs[i])], dtype=torch.float32, device=x.device))  # 确保在正确设备上
+            # 填充以确保每个样本的分解层数一致
+            while len(coeffs[i]) < self.level + 1:
+                # 使用最大值填充缺失的层
+                max_value = coeffs[i][0].max().item()  # 假设使用第一层的最大值
+                coeffs[i].append(torch.full((max_lengths[len(coeffs[i])],), fill_value=max_value, device=x.device))
 
-        # 确保每个层级的张量形状一致，处理多维情况（例如 [50, 2] 和 [50, 3]）
-        for depth in range(max_depth + 1):
-            # 找到当前层级中最大的张量宽度（第二维度）
+        # 处理多维情况，确保每层的张量形状一致
+        for depth in range(self.level + 1):
             max_width = max(coeffs[i][depth].size(1) if coeffs[i][depth].dim() > 1 else 1 for i in range(len(coeffs)))
             for i in range(len(coeffs)):
-                # 如果张量是一维的，扩展为二维
                 if coeffs[i][depth].dim() == 1:
                     coeffs[i][depth] = coeffs[i][depth].unsqueeze(1)
 
-                # 填充宽度，使得每个张量在该层级的第二个维度一致
                 if coeffs[i][depth].size(1) < max_width:
                     padding = max_width - coeffs[i][depth].size(1)
                     coeffs[i][depth] = F.pad(coeffs[i][depth], (0, padding))
 
         coeffs_tensor = torch.stack([torch.cat(coeffs[i], dim=1) for i in range(len(coeffs))])
 
-        # 计算瞬时频率（这里需要根据小波系数的具体结构进行调整）
+        # 计算瞬时频率
         instantaneous_frequency = torch.diff(torch.angle(coeffs_tensor), dim=-1)
         instantaneous_frequency = F.pad(instantaneous_frequency, (0, 1))
 
         # 计算同步压缩变换
-        sst = torch.zeros_like(coeffs_tensor, device=x.device)  # 确保在正确设备上
+        sst = torch.zeros_like(coeffs_tensor, device=x.device)
         for t in range(sst.shape[-1]):
             for f in range(sst.shape[-2]):
-                k = (f + instantaneous_frequency[:, f, t]).long()
+                freq_adjusted = torch.clamp(instantaneous_frequency[:, f, t], min=-1, max=1)
+                k = (f + freq_adjusted).long()
                 k = torch.clamp(k, 0, sst.shape[-2] - 1)
                 sst[:, k, t] += coeffs_tensor[:, f, t]
 
@@ -146,7 +142,6 @@ class SSTModel(nn.Module):
 class TedRec(SASRec):
     """Text-ID fusion approach for sequential recommendation
     """
-
     def __init__(self, config, dataset):
         super().__init__(config, dataset)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -225,6 +220,7 @@ class TedRec(SASRec):
         logits = torch.matmul(seq_output, test_item_emb.transpose(0, 1)) / self.temperature
         pos_items = interaction[self.POS_ITEM_ID].to(self.device)  # 确保在 GPU 上
         loss = self.loss_fct(logits, pos_items)
+        print(f"Current Loss: {loss.item()}")
         return loss
 
     def full_sort_predict(self, interaction):
