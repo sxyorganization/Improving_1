@@ -38,7 +38,7 @@ class MoEAdaptorLayer(nn.Module):
     """MoE-enhanced Adaptor
     """
 
-    def __init__(self, n_exps, layers, dropout=0.0, max_seq_length=50, noise=True):
+    def __init__(self, n_exps, layers, dropout=0.0, max_seq_length=50, noise=False):
         super(MoEAdaptorLayer, self).__init__()
 
         self.n_exps = n_exps
@@ -48,7 +48,7 @@ class MoEAdaptorLayer(nn.Module):
         self.w_gate = nn.Parameter(torch.zeros(layers[0], n_exps), requires_grad=True)
         self.w_noise = nn.Parameter(torch.zeros(layers[0], n_exps), requires_grad=True)
 
-    def noisy_top_k_gating(self, x, train, noise_epsilon=1e-2):
+    def noisy_top_k_gating(self, x, train, noise_epsilon=1e-3):
         clean_logits = x @ self.w_gate
         if self.noisy_gating and train:
             raw_noise_stddev = x @ self.w_noise
@@ -68,30 +68,16 @@ class MoEAdaptorLayer(nn.Module):
         multiple_outputs = gates.unsqueeze(-1) * expert_outputs
         return multiple_outputs.sum(dim=-2)
 
-
 class SSTModel(nn.Module):
     def __init__(self, config):
         super(SSTModel, self).__init__()
-        self.window_length = config['window_length']
-        self.hop_length = config['hop_length']
-        self.n_fft = config['n_fft']
         self.wavelet = config['wavelet']
         self.level = 3  # 固定小波分解层数
-        self.max_length = 50  # 固定长度
 
     def forward(self, x):
         # 确保输入在正确设备上
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(x, dtype=torch.float32, device=x.device)
-
-        # 确保输入序列长度为 max_length
-        if x.size(1) < self.max_length:
-            # 填充
-            padding = self.max_length - x.size(1)
-            x = F.pad(x, (0, padding), value=0)  # 使用 0 填充
-        elif x.size(1) > self.max_length:
-            # 裁剪
-            x = x[:, :self.max_length]
 
         coeffs = []
         max_lengths = [0] * (self.level + 1)
@@ -138,56 +124,38 @@ class SSTModel(nn.Module):
 
     def inverse_transform(self, sst, debug=False):
         reconstructed = []
-        num_coeffs = self.level + 1  # 预期的小波系数数量
+        num_coeffs = 4  # 小波系数的数量
 
         for i in range(sst.size(0)):
             sst_numpy = sst[i].detach().cpu().numpy()
 
-            # 计算每个系数的长度
-            coeff_length = sst_numpy.shape[1] // num_coeffs
-            coeffs = []
+            # 确保提取的系数与小波分解一致
+            coeffs = [
+                sst_numpy[:, :41],  # 逼近系数1
+                sst_numpy[:, :41],  # 逼近系数2
+                sst_numpy[:, 41:119],  # 细节系数1，调整为正确的索引
+                sst_numpy[:, 119:271]  # 细节系数2，调整为正确的索引
+            ]
 
+            # 验证系数形状
             for j in range(num_coeffs):
-                start_idx = j * coeff_length
-                end_idx = min((j + 1) * coeff_length, sst_numpy.shape[1])  # 确保不超出范围
+                coeff = coeffs[j]
+                if coeff.shape[1] != (41 if j < 2 else (78 if j == 2 else 152)):
+                    continue  # 这里可以选择记录错误或抛出异常
 
-                # 提取并计算均值
-                coeff = sst_numpy[:, start_idx:end_idx].mean(axis=0)
-                coeffs.append(coeff.flatten())
-
-            # 确保系数数量匹配
-            if len(coeffs) != num_coeffs:
-                if debug:
-                    print(f"Mismatch in coefficients count for sample {i}: expected {num_coeffs}, got {len(coeffs)}")
-                continue  # 跳过此样本，继续处理下一个
-
-            # 确保每个系数的形状一致
-            for k, coeff in enumerate(coeffs):
-                if coeff.shape != coeffs[0].shape:  # 检查与第一个系数的形状是否一致
-                    if debug:
-                        print(
-                            f"Coefficient shape mismatch at sample {i}, coeff {k}: {coeff.shape} (expected {coeffs[0].shape})"
-                        )
-                    continue  # 跳过此样本，继续处理下一个
-
-            # 进行逆小波变换
+            # 进行逆变换
             try:
                 reconstructed_sample = pywt.waverec(coeffs, self.wavelet)
                 reconstructed_tensor = torch.tensor(reconstructed_sample, dtype=torch.float32, device=sst.device)
 
-                # 确保重建的样本与原始样本形状一致
                 if reconstructed_tensor.shape[0] < sst.shape[1]:
                     reconstructed_tensor = F.pad(reconstructed_tensor,
                                                  (0, sst.shape[1] - reconstructed_tensor.shape[0]), value=0)
 
                 reconstructed.append(reconstructed_tensor)
             except ValueError as e:
-                if debug:
-                    print(f"Error during wavelet reconstruction for sample {i}: {e}")
-                    print(f"Coefficients: {coeffs}")
-
+                continue  # 这里可以选择记录错误或抛出异常
         if not reconstructed:
-            print("No valid reconstructed samples were created.")
             return None
 
         return torch.stack(reconstructed)
@@ -212,8 +180,8 @@ class TedRec(SASRec):
         ).to(self.device)
 
         self.sst_model = SSTModel(config).to(self.device)
-        self.item_gating.weight.data.normal_(mean=0, std=0.02)
-        self.fusion_gating.weight.data.normal_(mean=0, std=0.02)
+        self.item_gating.weight.data.normal_(mean=0, std=0.05)
+        self.fusion_gating.weight.data.normal_(mean=0, std=0.05)
 
     def contextual_convolution(self, item_emb, feature_emb):
         """Sequence-Level Representation Fusion"""
@@ -221,14 +189,14 @@ class TedRec(SASRec):
         feature_emb = feature_emb.to(self.device)
 
         # 打印输入嵌入的形状
-        print(f"Item Embedding shape: {item_emb.shape}")
-        print(f"Feature Embedding shape: {feature_emb.shape}")
+        #print(f"Item Embedding shape: {item_emb.shape}")
+        #print(f"Feature Embedding shape: {feature_emb.shape}")
 
         item_sst = self.sst_model(item_emb)
         feature_sst = self.sst_model(feature_emb)
 
-        print(f"Item SST shape: {item_sst.shape}")
-        print(f"Feature SST shape: {feature_sst.shape}")
+        #print(f"Item SST shape: {item_sst.shape}")
+        #print(f"Feature SST shape: {feature_sst.shape}")
         # 检查形状一致性
         if item_sst.shape != feature_sst.shape:
             raise ValueError("Item SST and Feature SST shapes do not match!")
@@ -242,22 +210,34 @@ class TedRec(SASRec):
             return None  # 或者处理错误情况
 
         # 确保维度一致，必要时进行裁剪
-        input_dim = self.item_gating.in_features
-        item_time = item_time[:, :input_dim]
-        feature_time = feature_time[:, :input_dim]
-
-        #item_sst = item_sst.contiguous().view(item_sst.size(0), -1)
-        #feature_sst = feature_sst.contiguous().view(feature_sst.size(0), -1)
-
         #input_dim = self.item_gating.in_features
-        #item_sst = item_sst[:, :input_dim]
-        #feature_sst = feature_sst[:, :input_dim]
+        #item_time = item_time[:, :input_dim]
+        #feature_time = feature_time[:, :input_dim]
 
-        item_gate_w = self.item_gating(item_sst)
-        fusion_gate_w = self.fusion_gating(feature_sst)
+        # 打印逆变换的结果
+        #print(f"Item Time shape: {None if item_time is None else item_time.shape}")
+        #print(f"Feature Time shape: {None if feature_time is None else feature_time.shape}")
 
-        contextual_emb = 2 *(item_time *torch.sigmoid(item_gate_w) + feature_time * torch.sigmoid(fusion_gate_w))
-        #contextual_emb = 2  (item_sst  torch.sigmoid(item_gate_w) + feature_sst * torch.sigmoid(fusion_gate_w))
+        # 只使用前300个特征（根据你的情况）
+        #item_sst_reduced = item_sst[:, :, :self.hidden_size]
+        #feature_sst_reduced = feature_sst[:, :, :self.hidden_size]
+        item_gate_w = self.item_gating(item_emb)
+        fusion_gate_w = self.fusion_gating(feature_emb)
+        #item_gate_w = self.item_gating(item_sst_reduced.view(-1, self.hidden_size))  # reshape 为 (batch_size * seq_len, hidden_size)
+        #fusion_gate_w = self.fusion_gating(feature_sst_reduced.view(-1, self.hidden_size))
+
+        # 重新reshape回原来的形状
+        #item_gate_w = item_gate_w.view(item_sst.shape[0], item_sst.shape[1], -1)
+        #fusion_gate_w = fusion_gate_w.view(feature_sst.shape[0], feature_sst.shape[1], -1)
+
+        # 结合特征
+        # 加权结合特征，使用 ReLU 激活
+        # 使用Softmax进行注意力权重的计算
+        attention_weights = F.softmax(item_gate_w + fusion_gate_w, dim=-1)
+        contextual_emb = attention_weights * item_time + (1 - attention_weights) * feature_time
+        #contextual_emb = F.relu(item_time * item_gate_w + feature_time * fusion_gate_w)*2
+        #contextual_emb = 2 * (item_time * torch.sigmoid(item_gate_w) +feature_time * torch.sigmoid(fusion_gate_w))
+
         return contextual_emb
 
     def forward(self, item_seq, item_emb, item_seq_len):
@@ -270,8 +250,8 @@ class TedRec(SASRec):
 
         input_emb = self.contextual_convolution(self.item_embedding(item_seq), item_emb)
 
-        input_emb = input_emb.unsqueeze(1).expand(-1, position_embedding.size(1), -1)
-        input_emb = input_emb + position_embedding
+        # 直接将 input_emb 与 position_embedding 相加，确保维度匹配
+        input_emb = input_emb + position_embedding  # 这一步可能不需要 unsqueeze 和 expand
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
         extended_attention_mask = self.get_attention_mask(item_seq).to(self.device)
@@ -292,7 +272,20 @@ class TedRec(SASRec):
         logits = torch.matmul(seq_output, test_item_emb.transpose(0, 1)) / self.temperature
         pos_items = interaction[self.POS_ITEM_ID].to(self.device)
 
-        loss = self.loss_fct(logits, pos_items)
+        ce_loss = self.loss_fct(logits, pos_items)
+        # 随机负采样
+        num_neg_samples = 100  # 可以调整为合适的数量
+        neg_items = torch.randint(0, test_item_emb.size(0), (logits.size(0), num_neg_samples), device=self.device)
+
+        # 负样本的相似性计算
+        neg_logits = torch.matmul(seq_output, test_item_emb[neg_items].transpose(1, 2)) / self.temperature
+
+        # 对比损失：正样本和负样本
+        contrastive_loss = -F.logsigmoid(logits.gather(1, pos_items.view(-1, 1))).mean() - F.logsigmoid(
+            -neg_logits).mean()
+
+        # 总损失 = 交叉熵损失 + 对比损失
+        loss = ce_loss + 0.1 * contrastive_loss  # 0.5 权重可以调整
 
         print(f"Current Loss: {loss.item()}")
         return loss
