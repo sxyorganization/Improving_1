@@ -1,0 +1,366 @@
+Wed 09 Oct 2024 14:48:39 INFO  
+General Hyper Parameters:
+gpu_id = 0
+use_gpu = True
+seed = 2020
+state = INFO
+reproducibility = True
+data_path = dataset/ml-1m
+checkpoint_dir = saved
+show_progress = False
+save_dataset = False
+dataset_save_path = None
+save_dataloaders = False
+dataloaders_save_path = None
+log_wandb = False
+
+Training Hyper Parameters:
+epochs = 300
+train_batch_size = 2048
+learner = adam
+learning_rate = 0.001
+train_neg_sample_args = {'distribution': 'none', 'sample_num': 'none', 'alpha': 'none', 'dynamic': False, 'candidate_num': 0}
+eval_step = 1
+stopping_step = 10
+clip_grad_norm = None
+weight_decay = 0.0
+loss_decimal_place = 4
+
+Evaluation Hyper Parameters:
+eval_args = {'split': {'LS': 'valid_and_test'}, 'order': 'TO', 'group_by': 'user', 'mode': {'valid': 'full', 'test': 'full'}}
+repeatable = True
+metrics = ['Recall', 'NDCG']
+topk = [10, 20]
+valid_metric = NDCG@10
+valid_metric_bigger = True
+eval_batch_size = 2048
+metric_decimal_place = 4
+
+Dataset Hyper Parameters:
+field_separator = 	
+seq_separator =  
+USER_ID_FIELD = user_id
+ITEM_ID_FIELD = item_id
+RATING_FIELD = rating
+TIME_FIELD = timestamp
+seq_len = None
+LABEL_FIELD = label
+threshold = None
+NEG_PREFIX = neg_
+load_col = {'inter': ['user_id', 'item_id_list', 'item_id']}
+unload_col = None
+unused_col = None
+additional_feat_suffix = None
+rm_dup_inter = None
+val_interval = None
+filter_inter_by_user_or_item = True
+user_inter_num_interval = [0,inf)
+item_inter_num_interval = [0,inf)
+alias_of_user_id = None
+alias_of_item_id = ['item_id_list']
+alias_of_entity_id = None
+alias_of_relation_id = None
+preload_weight = None
+normalize_field = None
+normalize_all = None
+ITEM_LIST_LENGTH_FIELD = item_length
+LIST_SUFFIX = _list
+MAX_ITEM_LIST_LENGTH = 50
+POSITION_FIELD = position_id
+HEAD_ENTITY_ID_FIELD = head_id
+TAIL_ENTITY_ID_FIELD = tail_id
+RELATION_ID_FIELD = relation_id
+ENTITY_ID_FIELD = entity_id
+benchmark_filename = ['train', 'valid', 'test']
+
+Other Hyper Parameters: 
+worker = 0
+wandb_project = recbole
+shuffle = True
+require_pow = False
+enable_amp = False
+enable_scaler = False
+transform = None
+numerical_features = []
+discretization = None
+kg_reverse_r = False
+entity_kg_num_interval = [0,inf)
+relation_kg_num_interval = [0,inf)
+MODEL_TYPE = ModelType.SEQUENTIAL
+n_layers = 2
+n_heads = 2
+hidden_size = 300
+inner_size = 256
+hidden_dropout_prob = 0.5
+attn_dropout_prob = 0.5
+hidden_act = gelu
+layer_norm_eps = 1e-12
+initializer_range = 0.02
+loss_type = CE
+plm_suffix = feat1CLS
+plm_size = 768
+adaptor_dropout_prob = 0.2
+adaptor_layers = [768, 300]
+temperature = 0.07
+n_exps = 8
+n_fft = 64
+compress_size = 1
+hop_length = 16
+n_head = 2
+d_k = 4
+d_v = 4
+stft_weight = 0.0001
+res_weight = 0.0001
+MODEL_INPUT_TYPE = InputType.POINTWISE
+eval_type = EvaluatorType.RANKING
+single_spec = True
+local_rank = 0
+device = cuda
+valid_neg_sample_args = {'distribution': 'uniform', 'sample_num': 'none'}
+test_neg_sample_args = {'distribution': 'uniform', 'sample_num': 'none'}
+
+
+Wed 09 Oct 2024 14:49:02 INFO  ml-1m
+The number of users: 6041
+Average actions of users: 164.49850993377484
+The number of items: 3417
+Average actions of items: 290.85802107728335
+The number of inters: 993571
+The sparsity of the dataset: 95.18667604362095%
+Remain Fields: ['user_id', 'item_id_list', 'item_id', 'item_length']
+Wed 09 Oct 2024 14:49:08 INFO  [Training]: train_batch_size = [2048] train_neg_sample_args: [{'distribution': 'none', 'sample_num': 'none', 'alpha': 'none', 'dynamic': False, 'candidate_num': 0}]
+Wed 09 Oct 2024 14:49:08 INFO  [Evaluation]: eval_batch_size = [2048] eval_args: [{'split': {'LS': 'valid_and_test'}, 'order': 'TO', 'group_by': 'user', 'mode': {'valid': 'full', 'test': 'full'}}]
+Wed 09 Oct 2024 14:49:08 INFO  TedRec(
+  (item_embedding): Embedding(3417, 300, padding_idx=0)
+  (position_embedding): Embedding(50, 300)
+  (trm_encoder): TransformerEncoder(
+    (layer): ModuleList(
+      (0-1): 2 x TransformerLayer(
+        (multi_head_attention): MultiHeadAttention(
+          (query): Linear(in_features=300, out_features=300, bias=True)
+          (key): Linear(in_features=300, out_features=300, bias=True)
+          (value): Linear(in_features=300, out_features=300, bias=True)
+          (softmax): Softmax(dim=-1)
+          (attn_dropout): Dropout(p=0.5, inplace=False)
+          (dense): Linear(in_features=300, out_features=300, bias=True)
+          (LayerNorm): LayerNorm((300,), eps=1e-12, elementwise_affine=True)
+          (out_dropout): Dropout(p=0.5, inplace=False)
+        )
+        (feed_forward): FeedForward(
+          (dense_1): Linear(in_features=300, out_features=256, bias=True)
+          (dense_2): Linear(in_features=256, out_features=300, bias=True)
+          (LayerNorm): LayerNorm((300,), eps=1e-12, elementwise_affine=True)
+          (dropout): Dropout(p=0.5, inplace=False)
+        )
+      )
+    )
+  )
+  (LayerNorm): LayerNorm((300,), eps=1e-12, elementwise_affine=True)
+  (dropout): Dropout(p=0.5, inplace=False)
+  (loss_fct): CrossEntropyLoss()
+  (plm_embedding): Embedding(3417, 768, padding_idx=0)
+  (item_gating): Linear(in_features=300, out_features=1, bias=True)
+  (fusion_gating): Linear(in_features=300, out_features=1, bias=True)
+  (moe_adaptor): MoEAdaptorLayer(
+    (experts): ModuleList(
+      (0-7): 8 x DTRLayer(
+        (dropout): Dropout(p=0.2, inplace=False)
+        (lin): Linear(in_features=768, out_features=300, bias=False)
+      )
+    )
+  )
+  (stft_model): STFTModel(
+    (compress): Linear(in_features=300, out_features=1, bias=True)
+    (enlarge): Linear(in_features=1, out_features=300, bias=True)
+  )
+  (item_stft_gating): Linear(in_features=300, out_features=1, bias=True)
+  (fusion_stft_gating): Linear(in_features=300, out_features=1, bias=True)
+  (res_mh): MultiHeadAttention(
+    (w_qs): Linear(in_features=300, out_features=8, bias=False)
+    (w_ks): Linear(in_features=300, out_features=8, bias=False)
+    (w_vs): Linear(in_features=300, out_features=8, bias=False)
+    (fc): Linear(in_features=8, out_features=300, bias=False)
+    (attention): ScaledDotProductAttention(
+      (dropout): Dropout(p=0.1, inplace=False)
+    )
+    (dropout): Dropout(p=0.1, inplace=False)
+    (layer_norm): LayerNorm((300,), eps=1e-06, elementwise_affine=True)
+  )
+)
+Trainable parameters: 4264669
+Wed 09 Oct 2024 14:51:02 INFO  epoch 0 training [time: 113.23s, train loss: 3036.3254]
+Wed 09 Oct 2024 14:51:02 INFO  epoch 0 evaluating [time: 0.20s, valid_score: 0.090500]
+Wed 09 Oct 2024 14:51:02 INFO  valid result: 
+recall@10 : 0.1851    recall@20 : 0.2993    ndcg@10 : 0.0905    ndcg@20 : 0.1192
+Wed 09 Oct 2024 14:51:03 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 14:52:55 INFO  epoch 1 training [time: 112.72s, train loss: 2732.9759]
+Wed 09 Oct 2024 14:52:55 INFO  epoch 1 evaluating [time: 0.19s, valid_score: 0.119600]
+Wed 09 Oct 2024 14:52:55 INFO  valid result: 
+recall@10 : 0.2291    recall@20 : 0.3467    ndcg@10 : 0.1196    ndcg@20 : 0.1493
+Wed 09 Oct 2024 14:52:56 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 14:54:48 INFO  epoch 2 training [time: 112.78s, train loss: 2671.9807]
+Wed 09 Oct 2024 14:54:49 INFO  epoch 2 evaluating [time: 0.19s, valid_score: 0.124700]
+Wed 09 Oct 2024 14:54:49 INFO  valid result: 
+recall@10 : 0.2374    recall@20 : 0.3515    ndcg@10 : 0.1247    ndcg@20 : 0.1535
+Wed 09 Oct 2024 14:54:49 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 14:56:41 INFO  epoch 3 training [time: 112.84s, train loss: 2638.7619]
+Wed 09 Oct 2024 14:56:42 INFO  epoch 3 evaluating [time: 0.19s, valid_score: 0.128600]
+Wed 09 Oct 2024 14:56:42 INFO  valid result: 
+recall@10 : 0.2444    recall@20 : 0.3642    ndcg@10 : 0.1286    ndcg@20 : 0.1588
+Wed 09 Oct 2024 14:56:42 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 14:58:35 INFO  epoch 4 training [time: 112.83s, train loss: 2616.7797]
+Wed 09 Oct 2024 14:58:35 INFO  epoch 4 evaluating [time: 0.19s, valid_score: 0.129800]
+Wed 09 Oct 2024 14:58:35 INFO  valid result: 
+recall@10 : 0.2475    recall@20 : 0.3707    ndcg@10 : 0.1298    ndcg@20 : 0.1609
+Wed 09 Oct 2024 14:58:35 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:00:28 INFO  epoch 5 training [time: 112.99s, train loss: 2599.9827]
+Wed 09 Oct 2024 15:00:28 INFO  epoch 5 evaluating [time: 0.19s, valid_score: 0.136300]
+Wed 09 Oct 2024 15:00:28 INFO  valid result: 
+recall@10 : 0.255    recall@20 : 0.3699    ndcg@10 : 0.1363    ndcg@20 : 0.1654
+Wed 09 Oct 2024 15:00:28 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:02:21 INFO  epoch 6 training [time: 112.78s, train loss: 2586.8342]
+Wed 09 Oct 2024 15:02:21 INFO  epoch 6 evaluating [time: 0.19s, valid_score: 0.136700]
+Wed 09 Oct 2024 15:02:21 INFO  valid result: 
+recall@10 : 0.257    recall@20 : 0.3719    ndcg@10 : 0.1367    ndcg@20 : 0.1656
+Wed 09 Oct 2024 15:02:21 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:04:14 INFO  epoch 7 training [time: 112.89s, train loss: 2575.9507]
+Wed 09 Oct 2024 15:04:14 INFO  epoch 7 evaluating [time: 0.19s, valid_score: 0.139500]
+Wed 09 Oct 2024 15:04:14 INFO  valid result: 
+recall@10 : 0.2627    recall@20 : 0.3786    ndcg@10 : 0.1395    ndcg@20 : 0.1687
+Wed 09 Oct 2024 15:04:14 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:06:07 INFO  epoch 8 training [time: 112.91s, train loss: 2566.5462]
+Wed 09 Oct 2024 15:06:07 INFO  epoch 8 evaluating [time: 0.19s, valid_score: 0.138800]
+Wed 09 Oct 2024 15:06:07 INFO  valid result: 
+recall@10 : 0.2526    recall@20 : 0.3778    ndcg@10 : 0.1388    ndcg@20 : 0.1704
+Wed 09 Oct 2024 15:08:00 INFO  epoch 9 training [time: 112.96s, train loss: 2559.6759]
+Wed 09 Oct 2024 15:08:01 INFO  epoch 9 evaluating [time: 0.19s, valid_score: 0.137900]
+Wed 09 Oct 2024 15:08:01 INFO  valid result: 
+recall@10 : 0.2581    recall@20 : 0.3795    ndcg@10 : 0.1379    ndcg@20 : 0.1685
+Wed 09 Oct 2024 15:09:53 INFO  epoch 10 training [time: 112.78s, train loss: 2553.0461]
+Wed 09 Oct 2024 15:09:53 INFO  epoch 10 evaluating [time: 0.19s, valid_score: 0.142300]
+Wed 09 Oct 2024 15:09:53 INFO  valid result: 
+recall@10 : 0.2654    recall@20 : 0.3753    ndcg@10 : 0.1423    ndcg@20 : 0.17
+Wed 09 Oct 2024 15:09:54 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:11:47 INFO  epoch 11 training [time: 113.06s, train loss: 2547.1467]
+Wed 09 Oct 2024 15:11:47 INFO  epoch 11 evaluating [time: 0.19s, valid_score: 0.138700]
+Wed 09 Oct 2024 15:11:47 INFO  valid result: 
+recall@10 : 0.2613    recall@20 : 0.3785    ndcg@10 : 0.1387    ndcg@20 : 0.1683
+Wed 09 Oct 2024 15:13:40 INFO  epoch 12 training [time: 112.92s, train loss: 2541.9867]
+Wed 09 Oct 2024 15:13:40 INFO  epoch 12 evaluating [time: 0.19s, valid_score: 0.141200]
+Wed 09 Oct 2024 15:13:40 INFO  valid result: 
+recall@10 : 0.2616    recall@20 : 0.3851    ndcg@10 : 0.1412    ndcg@20 : 0.1724
+Wed 09 Oct 2024 15:15:33 INFO  epoch 13 training [time: 112.93s, train loss: 2537.8019]
+Wed 09 Oct 2024 15:15:33 INFO  epoch 13 evaluating [time: 0.19s, valid_score: 0.141900]
+Wed 09 Oct 2024 15:15:33 INFO  valid result: 
+recall@10 : 0.2651    recall@20 : 0.3831    ndcg@10 : 0.1419    ndcg@20 : 0.1716
+Wed 09 Oct 2024 15:17:26 INFO  epoch 14 training [time: 112.71s, train loss: 2533.5577]
+Wed 09 Oct 2024 15:17:26 INFO  epoch 14 evaluating [time: 0.19s, valid_score: 0.139700]
+Wed 09 Oct 2024 15:17:26 INFO  valid result: 
+recall@10 : 0.2566    recall@20 : 0.379    ndcg@10 : 0.1397    ndcg@20 : 0.1706
+Wed 09 Oct 2024 15:19:19 INFO  epoch 15 training [time: 112.81s, train loss: 2529.5777]
+Wed 09 Oct 2024 15:19:19 INFO  epoch 15 evaluating [time: 0.19s, valid_score: 0.139900]
+Wed 09 Oct 2024 15:19:19 INFO  valid result: 
+recall@10 : 0.2611    recall@20 : 0.3854    ndcg@10 : 0.1399    ndcg@20 : 0.1713
+Wed 09 Oct 2024 15:21:12 INFO  epoch 16 training [time: 112.82s, train loss: 2526.2240]
+Wed 09 Oct 2024 15:21:12 INFO  epoch 16 evaluating [time: 0.19s, valid_score: 0.142200]
+Wed 09 Oct 2024 15:21:12 INFO  valid result: 
+recall@10 : 0.2624    recall@20 : 0.3841    ndcg@10 : 0.1422    ndcg@20 : 0.173
+Wed 09 Oct 2024 15:23:05 INFO  epoch 17 training [time: 112.83s, train loss: 2522.8296]
+Wed 09 Oct 2024 15:23:05 INFO  epoch 17 evaluating [time: 0.19s, valid_score: 0.139000]
+Wed 09 Oct 2024 15:23:05 INFO  valid result: 
+recall@10 : 0.2614    recall@20 : 0.382    ndcg@10 : 0.139    ndcg@20 : 0.1695
+Wed 09 Oct 2024 15:24:58 INFO  epoch 18 training [time: 112.62s, train loss: 2520.2254]
+Wed 09 Oct 2024 15:24:58 INFO  epoch 18 evaluating [time: 0.19s, valid_score: 0.141100]
+Wed 09 Oct 2024 15:24:58 INFO  valid result: 
+recall@10 : 0.2662    recall@20 : 0.3831    ndcg@10 : 0.1411    ndcg@20 : 0.1706
+Wed 09 Oct 2024 15:26:51 INFO  epoch 19 training [time: 112.75s, train loss: 2516.8185]
+Wed 09 Oct 2024 15:26:51 INFO  epoch 19 evaluating [time: 0.19s, valid_score: 0.139800]
+Wed 09 Oct 2024 15:26:51 INFO  valid result: 
+recall@10 : 0.2621    recall@20 : 0.3795    ndcg@10 : 0.1398    ndcg@20 : 0.1694
+Wed 09 Oct 2024 15:28:43 INFO  epoch 20 training [time: 112.57s, train loss: 2514.1540]
+Wed 09 Oct 2024 15:28:43 INFO  epoch 20 evaluating [time: 0.19s, valid_score: 0.143200]
+Wed 09 Oct 2024 15:28:43 INFO  valid result: 
+recall@10 : 0.2623    recall@20 : 0.3846    ndcg@10 : 0.1432    ndcg@20 : 0.1739
+Wed 09 Oct 2024 15:28:44 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:30:36 INFO  epoch 21 training [time: 112.81s, train loss: 2511.4768]
+Wed 09 Oct 2024 15:30:37 INFO  epoch 21 evaluating [time: 0.19s, valid_score: 0.140400]
+Wed 09 Oct 2024 15:30:37 INFO  valid result: 
+recall@10 : 0.2604    recall@20 : 0.3793    ndcg@10 : 0.1404    ndcg@20 : 0.1703
+Wed 09 Oct 2024 15:32:29 INFO  epoch 22 training [time: 112.83s, train loss: 2508.8555]
+Wed 09 Oct 2024 15:32:30 INFO  epoch 22 evaluating [time: 0.19s, valid_score: 0.143400]
+Wed 09 Oct 2024 15:32:30 INFO  valid result: 
+recall@10 : 0.2623    recall@20 : 0.3815    ndcg@10 : 0.1434    ndcg@20 : 0.1735
+Wed 09 Oct 2024 15:32:30 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:34:22 INFO  epoch 23 training [time: 112.84s, train loss: 2506.9846]
+Wed 09 Oct 2024 15:34:23 INFO  epoch 23 evaluating [time: 0.19s, valid_score: 0.140600]
+Wed 09 Oct 2024 15:34:23 INFO  valid result: 
+recall@10 : 0.2642    recall@20 : 0.3843    ndcg@10 : 0.1406    ndcg@20 : 0.1709
+Wed 09 Oct 2024 15:36:15 INFO  epoch 24 training [time: 112.75s, train loss: 2504.7823]
+Wed 09 Oct 2024 15:36:16 INFO  epoch 24 evaluating [time: 0.19s, valid_score: 0.143400]
+Wed 09 Oct 2024 15:36:16 INFO  valid result: 
+recall@10 : 0.268    recall@20 : 0.3831    ndcg@10 : 0.1434    ndcg@20 : 0.1724
+Wed 09 Oct 2024 15:36:16 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:38:08 INFO  epoch 25 training [time: 112.66s, train loss: 2502.9928]
+Wed 09 Oct 2024 15:38:09 INFO  epoch 25 evaluating [time: 0.19s, valid_score: 0.144200]
+Wed 09 Oct 2024 15:38:09 INFO  valid result: 
+recall@10 : 0.2695    recall@20 : 0.3849    ndcg@10 : 0.1442    ndcg@20 : 0.1732
+Wed 09 Oct 2024 15:38:09 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:40:01 INFO  epoch 26 training [time: 112.71s, train loss: 2500.6176]
+Wed 09 Oct 2024 15:40:01 INFO  epoch 26 evaluating [time: 0.19s, valid_score: 0.142000]
+Wed 09 Oct 2024 15:40:01 INFO  valid result: 
+recall@10 : 0.2649    recall@20 : 0.3803    ndcg@10 : 0.142    ndcg@20 : 0.1711
+Wed 09 Oct 2024 15:41:54 INFO  epoch 27 training [time: 112.93s, train loss: 2498.8085]
+Wed 09 Oct 2024 15:41:55 INFO  epoch 27 evaluating [time: 0.19s, valid_score: 0.145100]
+Wed 09 Oct 2024 15:41:55 INFO  valid result: 
+recall@10 : 0.2707    recall@20 : 0.3896    ndcg@10 : 0.1467    ndcg@20 : 0.1768
+Wed 09 Oct 2024 15:41:55 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:43:47 INFO  epoch 28 training [time: 112.74s, train loss: 2496.5386]
+Wed 09 Oct 2024 15:43:48 INFO  epoch 28 evaluating [time: 0.19s, valid_score: 0.145200]
+Wed 09 Oct 2024 15:43:48 INFO  valid result: 
+recall@10 : 0.2697    recall@20 : 0.3889    ndcg@10 : 0.1452    ndcg@20 : 0.1752
+Wed 09 Oct 2024 15:43:48 INFO  Saving current: saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 15:45:40 INFO  epoch 29 training [time: 112.79s, train loss: 2494.9370]
+Wed 09 Oct 2024 15:45:41 INFO  epoch 29 evaluating [time: 0.19s, valid_score: 0.140500]
+Wed 09 Oct 2024 15:45:41 INFO  valid result: 
+recall@10 : 0.2646    recall@20 : 0.3818    ndcg@10 : 0.1405    ndcg@20 : 0.1701
+Wed 09 Oct 2024 15:47:33 INFO  epoch 30 training [time: 112.74s, train loss: 2493.6654]
+Wed 09 Oct 2024 15:47:34 INFO  epoch 30 evaluating [time: 0.19s, valid_score: 0.140900]
+Wed 09 Oct 2024 15:47:34 INFO  valid result: 
+recall@10 : 0.2667    recall@20 : 0.3813    ndcg@10 : 0.1409    ndcg@20 : 0.1697
+Wed 09 Oct 2024 15:49:26 INFO  epoch 31 training [time: 112.68s, train loss: 2492.3806]
+Wed 09 Oct 2024 15:49:26 INFO  epoch 31 evaluating [time: 0.19s, valid_score: 0.141000]
+Wed 09 Oct 2024 15:49:26 INFO  valid result: 
+recall@10 : 0.2649    recall@20 : 0.3806    ndcg@10 : 0.141    ndcg@20 : 0.1702
+Wed 09 Oct 2024 15:51:19 INFO  epoch 32 training [time: 112.79s, train loss: 2490.5309]
+Wed 09 Oct 2024 15:51:19 INFO  epoch 32 evaluating [time: 0.19s, valid_score: 0.141200]
+Wed 09 Oct 2024 15:51:19 INFO  valid result: 
+recall@10 : 0.2659    recall@20 : 0.3813    ndcg@10 : 0.1412    ndcg@20 : 0.1703
+Wed 09 Oct 2024 15:53:12 INFO  epoch 33 training [time: 112.81s, train loss: 2489.2748]
+Wed 09 Oct 2024 15:53:12 INFO  epoch 33 evaluating [time: 0.19s, valid_score: 0.144000]
+Wed 09 Oct 2024 15:53:12 INFO  valid result: 
+recall@10 : 0.2697    recall@20 : 0.3841    ndcg@10 : 0.144    ndcg@20 : 0.1728
+Wed 09 Oct 2024 15:55:05 INFO  epoch 34 training [time: 112.87s, train loss: 2487.8220]
+Wed 09 Oct 2024 15:55:06 INFO  epoch 34 evaluating [time: 0.19s, valid_score: 0.139000]
+Wed 09 Oct 2024 15:55:06 INFO  valid result: 
+recall@10 : 0.2647    recall@20 : 0.382    ndcg@10 : 0.139    ndcg@20 : 0.1686
+Wed 09 Oct 2024 15:56:58 INFO  epoch 35 training [time: 112.72s, train loss: 2486.0756]
+Wed 09 Oct 2024 15:56:58 INFO  epoch 35 evaluating [time: 0.19s, valid_score: 0.142600]
+Wed 09 Oct 2024 15:56:58 INFO  valid result: 
+recall@10 : 0.2654    recall@20 : 0.3854    ndcg@10 : 0.1426    ndcg@20 : 0.173
+Wed 09 Oct 2024 15:58:51 INFO  epoch 36 training [time: 112.79s, train loss: 2484.9852]
+Wed 09 Oct 2024 15:58:51 INFO  epoch 36 evaluating [time: 0.19s, valid_score: 0.141300]
+Wed 09 Oct 2024 15:58:51 INFO  valid result: 
+recall@10 : 0.2666    recall@20 : 0.3834    ndcg@10 : 0.1413    ndcg@20 : 0.1707
+Wed 09 Oct 2024 16:00:44 INFO  epoch 37 training [time: 113.07s, train loss: 2483.7370]
+Wed 09 Oct 2024 16:00:45 INFO  epoch 37 evaluating [time: 0.19s, valid_score: 0.142700]
+Wed 09 Oct 2024 16:00:45 INFO  valid result: 
+recall@10 : 0.2666    recall@20 : 0.3831    ndcg@10 : 0.1427    ndcg@20 : 0.1721
+Wed 09 Oct 2024 16:02:38 INFO  epoch 38 training [time: 112.89s, train loss: 2482.7114]
+Wed 09 Oct 2024 16:02:38 INFO  epoch 38 evaluating [time: 0.19s, valid_score: 0.140900]
+Wed 09 Oct 2024 16:02:38 INFO  valid result: 
+recall@10 : 0.2629    recall@20 : 0.3839    ndcg@10 : 0.1409    ndcg@20 : 0.1715
+Wed 09 Oct 2024 16:02:38 INFO  Finished training, best eval result in epoch 27
+Wed 09 Oct 2024 16:02:38 INFO  Loading model structure and parameters from saved/TedRec-Oct-09-2024_14-49-08.pth
+Wed 09 Oct 2024 16:02:38 INFO  best valid : OrderedDict({'recall@10': 0.2707, 'recall@20': 0.3896, 'ndcg@10': 0.1467, 'ndcg@20': 0.1768})
+Wed 09 Oct 2024 16:02:38 INFO  test result: OrderedDict({'recall@10': 0.2612, 'recall@20': 0.371, 'ndcg@10': 0.1432, 'ndcg@20': 0.1711})
+Wed 09 Oct 2024 16:02:38 INFO  0.2612	0.371	0.1432	0.1711
