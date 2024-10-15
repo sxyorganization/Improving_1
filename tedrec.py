@@ -6,17 +6,11 @@ from recbole.model.sequential_recommender.sasrec import SASRec
 from recbole.model.layers import TransformerEncoder, VanillaAttention
 from recbole.model.loss import BPRLoss
 from recbole.utils import FeatureType
-from scipy.signal import welch, csd
-from torch.utils.tensorboard import SummaryWriter
-import pywt
-import numpy as np
-from scipy.signal import hilbert
 
-
+    
 class DTRLayer(nn.Module):
     """Distinguishable Textual Representations Layer
     """
-
     def __init__(self, input_size, output_size, dropout=0.0, max_seq_length=50):
         super(DTRLayer, self).__init__()
 
@@ -37,8 +31,7 @@ class DTRLayer(nn.Module):
 class MoEAdaptorLayer(nn.Module):
     """MoE-enhanced Adaptor
     """
-
-    def __init__(self, n_exps, layers, dropout=0.0, max_seq_length=50, noise=False):
+    def __init__(self, n_exps, layers, dropout=0.0, max_seq_length=50, noise=True):
         super(MoEAdaptorLayer, self).__init__()
 
         self.n_exps = n_exps
@@ -48,7 +41,7 @@ class MoEAdaptorLayer(nn.Module):
         self.w_gate = nn.Parameter(torch.zeros(layers[0], n_exps), requires_grad=True)
         self.w_noise = nn.Parameter(torch.zeros(layers[0], n_exps), requires_grad=True)
 
-    def noisy_top_k_gating(self, x, train, noise_epsilon=1e-3):
+    def noisy_top_k_gating(self, x, train, noise_epsilon=1e-2):
         clean_logits = x @ self.w_gate
         if self.noisy_gating and train:
             raw_noise_stddev = x @ self.w_noise
@@ -62,242 +55,238 @@ class MoEAdaptorLayer(nn.Module):
         return gates
 
     def forward(self, x):
-        gates = self.noisy_top_k_gating(x, self.training)  # (B, n_E)
-        expert_outputs = [self.experts[i](x).unsqueeze(-2) for i in range(self.n_exps)]  # [(B, 1, D)]
+        gates = self.noisy_top_k_gating(x, self.training) # (B, n_E)
+        expert_outputs = [self.experts[i](x).unsqueeze(-2) for i in range(self.n_exps)] # [(B, 1, D)]
         expert_outputs = torch.cat(expert_outputs, dim=-2)
         multiple_outputs = gates.unsqueeze(-1) * expert_outputs
         return multiple_outputs.sum(dim=-2)
 
-class SSTModel(nn.Module):
+
+class STFTModel(nn.Module):
     def __init__(self, config):
-        super(SSTModel, self).__init__()
-        self.wavelet = config['wavelet']
-        self.level = 3  # 固定小波分解层数
+        super(STFTModel, self).__init__()
+        self.n_fft = config['n_fft']
+        self.hop_length = config['hop_length']
+        self.window = torch.hann_window(self.n_fft)
+        self.compress_size = config["compress_size"]
+        self.compress = nn.Linear(config["hidden_size"], config["compress_size"])
+        self.enlarge = nn.Linear(config["compress_size"], config["hidden_size"])
 
     def forward(self, x):
-        # 确保输入在正确设备上
-        if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x, dtype=torch.float32, device=x.device)
+        x_compress = self.compress(x)
+        stft_results = []
+        for i in range(self.compress_size):
+            stft_result = torch.stft(
+                x_compress[:, :, i],
+                n_fft=self.n_fft,
+                hop_length=self.hop_length,
+                window=self.window.to(x.device),
+                return_complex=True
+            )
+            stft_results.append(stft_result)
+        stft_tensor = torch.stack(stft_results, dim=-1)
+        return stft_tensor
 
-        coeffs = []
-        max_lengths = [0] * (self.level + 1)
+    def inverse_transform(self, stft_tensor, original_seq_len):
+        istft_results = []
+        for i in range(self.compress_size):
+            istft_result = torch.istft(
+                stft_tensor[..., i],
+                n_fft=self.n_fft,
+                hop_length=self.hop_length,
+                window=self.window.to(stft_tensor.device),
+                length=original_seq_len
+            )
+            istft_results.append(istft_result)
+        istft_result_en = torch.stack(istft_results, dim=-1)
+        reconstructed_tensor = self.enlarge(istft_result_en)
+        return reconstructed_tensor
 
-        # 遍历每个样本进行小波分解
-        for i in range(x.size(0)):
-            c = pywt.wavedec(x[i].detach().cpu().numpy(), self.wavelet, level=self.level)
-            c_tensors = [torch.tensor(arr, dtype=torch.float32, device=x.device) for arr in c]
-            coeffs.append(c_tensors)
 
-            for j in range(len(c_tensors)):
-                max_lengths[j] = max(max_lengths[j], c_tensors[j].size(0))
+class MultiHeadAttention(nn.Module):
+    ''' Multi-Head Attention module '''
 
-        # 填充或裁剪小波系数
-        for i in range(len(coeffs)):
-            for j in range(len(coeffs[i])):
-                length = coeffs[i][j].size(0)
-                if length < max_lengths[j]:
-                    max_value = coeffs[i][j].max().item()
-                    coeffs[i][j] = F.pad(coeffs[i][j], (0, max_lengths[j] - length), value=max_value)
-                else:
-                    coeffs[i][j] = coeffs[i][j][:max_lengths[j]]
+    def __init__(self, n_head, d_model, d_k, d_v, dropout=0.1):
+        super().__init__()
 
-            while len(coeffs[i]) < self.level + 1:
-                max_value = coeffs[i][0].max().item()
-                coeffs[i].append(torch.full((max_lengths[len(coeffs[i])],), fill_value=max_value, device=x.device))
+        self.n_head = n_head
+        self.d_k = d_k
+        self.d_v = d_v
 
-        coeffs_tensor = torch.stack([torch.cat(coeffs[i], dim=1) for i in range(len(coeffs))])
+        self.w_qs = nn.Linear(d_model, n_head * d_k, bias=False)
+        self.w_ks = nn.Linear(d_model, n_head * d_k, bias=False)
+        self.w_vs = nn.Linear(d_model, n_head * d_v, bias=False)
+        self.fc = nn.Linear(n_head * d_v, d_model, bias=False)
 
-        # 计算瞬时频率
-        instantaneous_frequency = torch.diff(torch.angle(coeffs_tensor), dim=-1)
-        instantaneous_frequency = F.pad(instantaneous_frequency, (0, 1))
+        self.attention = ScaledDotProductAttention(temperature=d_k ** 0.5)
 
-        # 计算同步压缩变换
-        sst = torch.zeros_like(coeffs_tensor, device=x.device)
-        for t in range(sst.shape[-1]):
-            for f in range(sst.shape[-2]):
-                freq_adjusted = torch.clamp(instantaneous_frequency[:, f, t], min=-1, max=1)
-                k = (f + freq_adjusted).long()
-                k = torch.clamp(k, 0, sst.shape[-2] - 1)
-                sst[:, k, t] += coeffs_tensor[:, f, t]
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
-        return sst
 
-    def inverse_transform(self, sst, debug=False):
-        reconstructed = []
-        num_coeffs = 4  # 小波系数的数量
+    def forward(self, q, k, v, mask=None):
 
-        for i in range(sst.size(0)):
-            sst_numpy = sst[i].detach().cpu().numpy()
+        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
+        sz_b, len_q, len_k, len_v = q.size(0), q.size(1), k.size(1), v.size(1)
 
-            # 确保提取的系数与小波分解一致
-            coeffs = [
-                sst_numpy[:, :41],  # 逼近系数1
-                sst_numpy[:, :41],  # 逼近系数2
-                sst_numpy[:, 41:119],  # 细节系数1，调整为正确的索引
-                sst_numpy[:, 119:271]  # 细节系数2，调整为正确的索引
-            ]
+        residual = q
 
-            # 验证系数形状
-            for j in range(num_coeffs):
-                coeff = coeffs[j]
-                if coeff.shape[1] != (41 if j < 2 else (78 if j == 2 else 152)):
-                    continue  # 这里可以选择记录错误或抛出异常
+        # Pass through the pre-attention projection: b x lq x (n*dv)
+        # Separate different heads: b x lq x n x dv
+        q = self.w_qs(q).view(sz_b, len_q, n_head, d_k)
+        k = self.w_ks(k).view(sz_b, len_k, n_head, d_k)
+        v = self.w_vs(v).view(sz_b, len_v, n_head, d_v)
 
-            # 进行逆变换
-            try:
-                reconstructed_sample = pywt.waverec(coeffs, self.wavelet)
-                reconstructed_tensor = torch.tensor(reconstructed_sample, dtype=torch.float32, device=sst.device)
+        # Transpose for attention dot product: b x n x lq x dv
+        q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
 
-                if reconstructed_tensor.shape[0] < sst.shape[1]:
-                    reconstructed_tensor = F.pad(reconstructed_tensor,
-                                                 (0, sst.shape[1] - reconstructed_tensor.shape[0]), value=0)
+        if mask is not None:
+            mask = mask.unsqueeze(1)   # For head axis broadcasting.
 
-                reconstructed.append(reconstructed_tensor)
-            except ValueError as e:
-                continue  # 这里可以选择记录错误或抛出异常
-        if not reconstructed:
-            return None
+        q, attn = self.attention(q, k, v, mask=mask)
 
-        return torch.stack(reconstructed)
+        # Transpose to move the head dimension back: b x lq x n x dv
+        # Combine the last two dimensions to concatenate all the heads together: b x lq x (n*dv)
+        q = q.transpose(1, 2).contiguous().view(sz_b, len_q, -1)
+        q = self.dropout(self.fc(q))
+        q += residual
+
+        q = self.layer_norm(q)
+
+        return q
+
+
+class ScaledDotProductAttention(nn.Module):
+    ''' Scaled Dot-Product Attention '''
+
+    def __init__(self, temperature, attn_dropout=0.1):
+        super().__init__()
+        self.temperature = temperature
+        self.dropout = nn.Dropout(attn_dropout)
+
+    def forward(self, q, k, v, mask=None):
+
+        attn = torch.matmul(q / self.temperature, k.transpose(2, 3))
+
+        if mask is not None:
+            attn = attn.masked_fill(mask == 0, -1e9)
+
+        attn = self.dropout(F.softmax(attn, dim=-1))
+        output = torch.matmul(attn, v)
+
+        return output, attn
+
 
 class TedRec(SASRec):
-    """Text-ID fusion approach for sequential recommendation"""
+    """Text-ID fusion approach for sequential recommendation
+    """
     def __init__(self, config, dataset):
         super().__init__(config, dataset)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.to(self.device)
         self.temperature = config['temperature']
-        self.hidden_size = config['hidden_size']
-        self.plm_embedding = copy.deepcopy(dataset.plm_embedding).to(self.device)
-        self.item_gating = nn.Linear(self.hidden_size, 1).to(self.device)
-        self.fusion_gating = nn.Linear(self.hidden_size, 1).to(self.device)
+        self.plm_embedding = copy.deepcopy(dataset.plm_embedding)
+
+        self.item_gating = nn.Linear(self.hidden_size, 1)
+        self.fusion_gating = nn.Linear(self.hidden_size, 1)
+        self.item_gating.weight.data.normal_(mean=0, std=0.02)
+        self.fusion_gating.weight.data.normal_(mean=0, std=0.02)
+        self.complex_weight = nn.Parameter(torch.randn(1, self.max_seq_length // 2 + 1, self.hidden_size, 2, dtype=torch.float32) * 0.02)
 
         self.moe_adaptor = MoEAdaptorLayer(
             config['n_exps'],
             config['adaptor_layers'],
             config['adaptor_dropout_prob'],
             self.max_seq_length
-        ).to(self.device)
+        )
 
-        self.sst_model = SSTModel(config).to(self.device)
-        self.item_gating.weight.data.normal_(mean=0, std=0.05)
-        self.fusion_gating.weight.data.normal_(mean=0, std=0.05)
+        self.stft_model = STFTModel(config)
+        self.n_fft = config['n_fft']
+        self.hop_length = config['hop_length']
+        self.L = self.max_seq_length
+        self.compress_size = config["compress_size"]
+        self.item_stft_gating = nn.Linear(self.hidden_size, 1)
+        self.fusion_stft_gating = nn.Linear(self.hidden_size, 1)
+        self.item_stft_gating.weight.data.normal_(mean=0, std=0.02)
+        self.fusion_stft_gating.weight.data.normal_(mean=0, std=0.02)
+        self.complex_weight_stft = nn.Parameter(torch.randn(1, (self.n_fft // 2) + 1, 1 + self.L // self.hop_length, self.compress_size, 2,dtype=torch.float32) * 0.02)
 
+        self.res_mh = MultiHeadAttention(config['n_head'], self.hidden_size, config['d_k'], config['d_v'])
+        self.stft_weight = config['stft_weight']
+        self.res_weight = config['res_weight']
+        
     def contextual_convolution(self, item_emb, feature_emb):
-        """Sequence-Level Representation Fusion"""
-        item_emb = item_emb.to(self.device)
-        feature_emb = feature_emb.to(self.device)
+        """Sequence-Level Representation Fusion
+        """
+        # ori
 
-        # 打印输入嵌入的形状
-        #print(f"Item Embedding shape: {item_emb.shape}")
-        #print(f"Feature Embedding shape: {feature_emb.shape}")
+        feature_fft = torch.fft.rfft(feature_emb, dim=1, norm='ortho')
+        item_fft = torch.fft.rfft(item_emb, dim=1, norm='ortho')
+        complext_weight = torch.view_as_complex(self.complex_weight)
+        item_conv = torch.fft.irfft(item_fft * complext_weight, n=feature_emb.shape[1], dim=1, norm='ortho')
+        fusion_conv = torch.fft.irfft(feature_fft * item_fft, n=feature_emb.shape[1], dim=1, norm='ortho')
+        item_gate_w = self.item_gating(item_conv)
+        fusion_gate_w = self.fusion_gating(fusion_conv)
+        contextual_emb = 2 * (item_conv * torch.sigmoid(item_gate_w) + fusion_conv * torch.sigmoid(fusion_gate_w))
 
-        item_sst = self.sst_model(item_emb)
-        feature_sst = self.sst_model(feature_emb)
+        # new
+        item_seq_len = item_emb.shape[1]
+        feature_seq_len = feature_emb.shape[1]
+        item_stft = self.stft_model(item_emb)
+        feature_stft = self.stft_model(feature_emb)
+        complext_weight_stft = torch.view_as_complex(self.complex_weight_stft)
+        item_conv_stft = self.stft_model.inverse_transform(item_stft * complext_weight_stft, item_seq_len)
+        fusion_conv_stft = self.stft_model.inverse_transform(feature_stft * item_stft, feature_seq_len)
+        item_stft_gate_w = self.item_stft_gating(item_conv_stft)
+        fusion_stft_gate_w = self.fusion_stft_gating(fusion_conv_stft)
+        stft_contextual_emb = 2 * (item_conv_stft * torch.sigmoid(item_stft_gate_w) + fusion_conv_stft * torch.sigmoid(fusion_stft_gate_w))
 
-        #print(f"Item SST shape: {item_sst.shape}")
-        #print(f"Feature SST shape: {feature_sst.shape}")
-        # 检查形状一致性
-        if item_sst.shape != feature_sst.shape:
-            raise ValueError("Item SST and Feature SST shapes do not match!")
+        # res
+        res = item_emb + feature_emb + item_emb * feature_emb # 参考deepfm, fm， ffm etc
+        res_mh = self.res_mh(res, res, res)
 
-        # 将频域特征转换回时域
-        item_time = self.sst_model.inverse_transform(item_sst)
-        feature_time = self.sst_model.inverse_transform(feature_sst)
-
-        if item_time is None or feature_time is None:
-            print("Warning: Inverse transform returned None.")
-            return None  # 或者处理错误情况
-
-        # 确保维度一致，必要时进行裁剪
-        #input_dim = self.item_gating.in_features
-        #item_time = item_time[:, :input_dim]
-        #feature_time = feature_time[:, :input_dim]
-
-        # 打印逆变换的结果
-        #print(f"Item Time shape: {None if item_time is None else item_time.shape}")
-        #print(f"Feature Time shape: {None if feature_time is None else feature_time.shape}")
-
-        # 只使用前300个特征（根据你的情况）
-        #item_sst_reduced = item_sst[:, :, :self.hidden_size]
-        #feature_sst_reduced = feature_sst[:, :, :self.hidden_size]
-        item_gate_w = self.item_gating(item_emb)
-        fusion_gate_w = self.fusion_gating(feature_emb)
-        #item_gate_w = self.item_gating(item_sst_reduced.view(-1, self.hidden_size))  # reshape 为 (batch_size * seq_len, hidden_size)
-        #fusion_gate_w = self.fusion_gating(feature_sst_reduced.view(-1, self.hidden_size))
-
-        # 重新reshape回原来的形状
-        #item_gate_w = item_gate_w.view(item_sst.shape[0], item_sst.shape[1], -1)
-        #fusion_gate_w = fusion_gate_w.view(feature_sst.shape[0], feature_sst.shape[1], -1)
-
-        # 结合特征
-        # 加权结合特征，使用 ReLU 激活
-        # 使用Softmax进行注意力权重的计算
-        attention_weights = F.softmax(item_gate_w + fusion_gate_w, dim=-1)
-        contextual_emb = attention_weights * item_time + (1 - attention_weights) * feature_time
-        #contextual_emb = F.relu(item_time * item_gate_w + feature_time * fusion_gate_w)*2
-        #contextual_emb = 2 * (item_time * torch.sigmoid(item_gate_w) +feature_time * torch.sigmoid(fusion_gate_w))
-
-        return contextual_emb
+        merge_emb = contextual_emb + self.stft_weight * stft_contextual_emb + self.res_weight * res_mh
+        return merge_emb
 
     def forward(self, item_seq, item_emb, item_seq_len):
-        item_seq = item_seq.to(self.device)
-        item_emb = item_emb.to(self.device)
-
-        position_ids = torch.arange(item_seq.size(1), dtype=torch.long, device=self.device)
+        position_ids = torch.arange(item_seq.size(1), dtype=torch.long, device=item_seq.device)
         position_ids = position_ids.unsqueeze(0).expand_as(item_seq)
-        position_embedding = self.position_embedding(position_ids).to(self.device)
+        position_embedding = self.position_embedding(position_ids)
 
         input_emb = self.contextual_convolution(self.item_embedding(item_seq), item_emb)
-
-        # 直接将 input_emb 与 position_embedding 相加，确保维度匹配
-        input_emb = input_emb + position_embedding  # 这一步可能不需要 unsqueeze 和 expand
+        input_emb = input_emb + position_embedding
         input_emb = self.LayerNorm(input_emb)
         input_emb = self.dropout(input_emb)
-        extended_attention_mask = self.get_attention_mask(item_seq).to(self.device)
+
+        extended_attention_mask = self.get_attention_mask(item_seq)
         trm_output = self.trm_encoder(input_emb, extended_attention_mask, output_all_encoded_layers=True)
         output = trm_output[-1]
         output = self.gather_indexes(output, item_seq_len - 1)
-        return output
+        return output  # [B H]
 
     def calculate_loss(self, interaction):
-        item_seq = interaction[self.ITEM_SEQ].to(self.device)
-        item_seq_len = interaction[self.ITEM_SEQ_LEN].to(self.device)
-        item_emb_list = self.moe_adaptor(self.plm_embedding(item_seq)).to(self.device)
-
+        # Loss  optimization
+        item_seq = interaction[self.ITEM_SEQ]
+        item_seq_len = interaction[self.ITEM_SEQ_LEN]
+        item_emb_list = self.moe_adaptor(self.plm_embedding(item_seq))
         seq_output = self.forward(item_seq, item_emb_list, item_seq_len)
-        test_item_emb = self.item_embedding.weight.to(self.device)
+        test_item_emb = self.item_embedding.weight
+
         seq_output = F.normalize(seq_output, dim=1)
         test_item_emb = F.normalize(test_item_emb, dim=1)
+
         logits = torch.matmul(seq_output, test_item_emb.transpose(0, 1)) / self.temperature
-        pos_items = interaction[self.POS_ITEM_ID].to(self.device)
-
-        ce_loss = self.loss_fct(logits, pos_items)
-        # 随机负采样
-        num_neg_samples = 100  # 可以调整为合适的数量
-        neg_items = torch.randint(0, test_item_emb.size(0), (logits.size(0), num_neg_samples), device=self.device)
-
-        # 负样本的相似性计算
-        neg_logits = torch.matmul(seq_output, test_item_emb[neg_items].transpose(1, 2)) / self.temperature
-
-        # 对比损失：正样本和负样本
-        contrastive_loss = -F.logsigmoid(logits.gather(1, pos_items.view(-1, 1))).mean() - F.logsigmoid(
-            -neg_logits).mean()
-
-        # 总损失 = 交叉熵损失 + 对比损失
-        loss = ce_loss + 0.1 * contrastive_loss  # 0.5 权重可以调整
-
-        print(f"Current Loss: {loss.item()}")
+        pos_items = interaction[self.POS_ITEM_ID]
+        loss = self.loss_fct(logits, pos_items)
         return loss
 
     def full_sort_predict(self, interaction):
-        item_seq = interaction[self.ITEM_SEQ].to(self.device)
-        item_seq_len = interaction[self.ITEM_SEQ_LEN].to(self.device)
-        item_emb_list = self.moe_adaptor(self.plm_embedding(item_seq)).to(self.device)
-
+        item_seq = interaction[self.ITEM_SEQ]
+        item_seq_len = interaction[self.ITEM_SEQ_LEN]
+        item_emb_list = self.moe_adaptor(self.plm_embedding(item_seq))
         seq_output = self.forward(item_seq, item_emb_list, item_seq_len)
-        test_items_emb = self.item_embedding.weight.to(self.device)
+        test_items_emb = self.item_embedding.weight
+
         seq_output = F.normalize(seq_output, dim=-1)
         test_items_emb = F.normalize(test_items_emb, dim=-1)
-        scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))
+
+        scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))  # [B n_items]
         return scores
